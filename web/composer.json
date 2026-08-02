@@ -1,0 +1,8 @@
+{
+    "name": "zuko195/ble-guard",
+    "description": "BLE Guard - anti-stalking BLE tracker detector backend",
+    "require": {
+        "dompdf/dompdf": "^2.0",
+        "phpmailer/phpmailer": "^6.9"
+    }
+}
