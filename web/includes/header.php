@@ -17,7 +17,7 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BLE Guard</title>
+    <title>BLE Guard - Auto Deploy Test</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="style.css">
 </head>
