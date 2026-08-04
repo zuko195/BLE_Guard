@@ -3,14 +3,14 @@
 // Checks X-Forwarded-Proto too - platforms like Wasmer terminate SSL at a
 // reverse proxy in front of the app, so $_SERVER['HTTPS'] alone may not be
 // set even when the actual connection to the user IS https.
-$isHttps = isset($_SERVER['HTTPS']) ||
-           (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+//$isHttps = isset($_SERVER['HTTPS']) ||
+  //         (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 
-if (!$isHttps && strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false) {
-    $redirect = "https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-    header("Location: $redirect");
-    exit;
-}
+//if (!$isHttps && strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') === false) {
+  //  $redirect = "https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+   // header("Location: $redirect");
+   // exit;
+//}
 
 $currentPage = basename($_SERVER['PHP_SELF']);
 ?>

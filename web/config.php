@@ -5,8 +5,8 @@
 // Falls back to local XAMPP defaults for local testing.
 $DB_HOST = getenv('DB_HOST') ?: "localhost";
 $DB_NAME = getenv('DB_NAME') ?: "ble_tracker";
-$DB_USER = getenv('DB_USERNAME') ?: "root";
-$DB_PASS = getenv('DB_PASSWORD') ?: "";
+$DB_USER = getenv('DB_USERNAME') ?: "bleuser";
+$DB_PASS = getenv('DB_PASSWORD') ?: "69@gloryback";
 
 try {
     $pdo = new PDO("mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4", $DB_USER, $DB_PASS);

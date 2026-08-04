@@ -71,7 +71,7 @@ $stmt->execute([
     $input['device_type']   ?? null,
     $input['rssi']          ?? null,
     $input['sighting_count']?? null,
-    $input['is_apple_findmy'] ?? false,
+    isset($input['is_apple_findmy']) ? (int)$input['is_apple_findmy'] : 0,
     $status,
     $input['threat_score']  ?? 0,
     $input['location_id']   ?? null,
