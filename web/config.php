@@ -6,7 +6,18 @@
 $DB_HOST = getenv('DB_HOST') ?: "localhost";
 $DB_NAME = getenv('DB_NAME') ?: "ble_tracker";
 $DB_USER = getenv('DB_USERNAME') ?: "bleuser";
-$DB_PASS = getenv('DB_PASSWORD') ?: "69@gloryback";
+
+function getRequiredEnv(string $name): string {
+    $value = getenv($name);
+    if ($value === false || $value === '') {
+        error_log("Server configuration error: missing required environment variable $name");
+        http_response_code(500);
+        die("Server configuration error. Please contact the administrator.");
+    }
+    return $value;
+}
+
+$DB_PASS = getRequiredEnv('DB_PASSWORD');
 
 try {
     $pdo = new PDO("mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4", $DB_USER, $DB_PASS);
@@ -27,7 +38,7 @@ try {
 // protecting stored WiFi passwords if the database is ever compromised.
 // (Randomly generated. If this repo is ever public, treat as compromised
 // and regenerate with: openssl rand -hex 16)
-define('WIFI_ENCRYPTION_KEY', getenv('WIFI_ENCRYPTION_KEY') ?: 'b4b13f6e778593bf280c9dd48b33b896');
+define('WIFI_ENCRYPTION_KEY', getRequiredEnv('WIFI_ENCRYPTION_KEY'));
 
 function encryptWifiPassword($plaintext) {
     $iv = random_bytes(16);
