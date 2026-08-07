@@ -17,15 +17,19 @@ $suspiciousCount = 0;
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
 
-    // Currently tracked = most recent event per MAC, only non-whitelisted
+    // Currently detected = most recent event per MAC within the last 15 minutes, only non-whitelisted
     $stmt = $pdo->prepare("
         SELECT e.* FROM ble_events e
         INNER JOIN (
             SELECT mac_address, MAX(event_time) AS max_time
-            FROM ble_events WHERE device_id IN ($placeholders)
+            FROM ble_events
+            WHERE device_id IN ($placeholders)
+              AND event_time >= NOW() - INTERVAL 15 MINUTE
             GROUP BY mac_address
         ) latest ON e.mac_address = latest.mac_address AND e.event_time = latest.max_time
-        WHERE e.device_id IN ($placeholders) AND e.status != 'whitelisted'
+        WHERE e.device_id IN ($placeholders)
+          AND e.status != 'whitelisted'
+          AND e.event_time >= NOW() - INTERVAL 15 MINUTE
         ORDER BY e.event_time DESC
     ");
     $stmt->execute(array_merge($deviceIds, $deviceIds));
@@ -35,7 +39,7 @@ if ($deviceIds) {
     $stmt->execute($deviceIds);
     $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ble_events WHERE device_id IN ($placeholders) AND status = 'suspicious'");
+    $stmt = $pdo->prepare("SELECT COUNT(DISTINCT mac_address) FROM ble_events WHERE device_id IN ($placeholders) AND status = 'suspicious'");
     $stmt->execute($deviceIds);
     $suspiciousCount = $stmt->fetchColumn();
 }
@@ -53,7 +57,7 @@ require 'includes/header.php';
 <?php else: ?>
 
 <div class="card">
-    <h3>Currently Tracked Devices</h3>
+    <h3>Currently Detected Devices</h3>
     <?php if (!$currentlyTracked): ?>
         <p style="color:#94a3b8;">No devices detected yet. Once your ESP32 starts scanning, they'll appear here.</p>
     <?php endif; ?>
@@ -85,7 +89,7 @@ if ($insights):
 <div class="stat-row">
     <div class="stat-box"><div class="label">Devices Registered</div><div class="value"><?= count($devices) ?></div></div>
     <div class="stat-box"><div class="label">Recent Events</div><div class="value"><?= count($events) ?></div></div>
-    <div class="stat-box danger"><div class="label">Suspicious Flags</div><div class="value"><?= $suspiciousCount ?></div></div>
+    <div class="stat-box danger"><div class="label">Suspicious Devices</div><div class="value"><?= $suspiciousCount ?></div></div>
 </div>
 
 <div class="card">
