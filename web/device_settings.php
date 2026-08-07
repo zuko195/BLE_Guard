@@ -11,6 +11,7 @@ $device = $stmt->fetch(PDO::FETCH_ASSOC);
 $deviceId = $device['id'] ?? null;
 
 $message = "";
+$messageType = 'safe';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $deviceId) {
     csrf_verify();
@@ -20,11 +21,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $deviceId) {
         $password = $_POST['wifi_password'];
         if (strlen($ssid) < 1 || strlen($password) < 8) {
             $message = "SSID required, password must be 8+ characters.";
+            $messageType = 'error';
         } else {
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM device_networks WHERE device_id = ? AND ssid = ?");
             $stmt->execute([$deviceId, $ssid]);
             if ($stmt->fetchColumn() > 0) {
                 $message = "That network is already saved.";
+                $messageType = 'error';
             } else {
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM device_networks WHERE device_id = ?");
                 $stmt->execute([$deviceId]);
@@ -54,33 +57,54 @@ if ($deviceId) {
 require 'includes/header.php';
 ?>
 
-<h2>WiFi Network Settings</h2>
-<p style="color:#94a3b8; font-size:13px;">Networks added here sync automatically to your ESP32 the next time it checks in (typically within a few minutes of boot, or periodically while running). Your device tries them in order until one connects.</p>
-<?php if ($message): ?><p style="color:var(--safe);"><?= htmlspecialchars($message) ?></p><?php endif; ?>
+<div class="page-hero">
+    <p class="eyebrow">Network Configuration</p>
+    <h2>WiFi Settings</h2>
+    <p class="hero-subtitle">Manage backup WiFi networks your BLE Guard device will try if the primary connection fails.</p>
+</div>
+
+<?php if ($message): ?>
+    <div class="alert <?= htmlspecialchars($messageType) ?>"><?= htmlspecialchars($message) ?></div>
+<?php endif; ?>
 
 <?php if (!$deviceId): ?>
-    <div class="card"><p style="color:#94a3b8;">Register a device first (see Account settings for your API key).</p></div>
+    <div class="card">
+        <p class="form-note">Register a device first to manage WiFi settings. Your API key is available in Account Settings.</p>
+    </div>
 <?php else: ?>
 
 <div class="card">
     <h3>Add Backup Network</h3>
     <form method="POST">
         <?= csrf_field() ?>
-        <input type="text" name="ssid" placeholder="WiFi Name (SSID)" required>
-        <input type="password" name="wifi_password" placeholder="WiFi Password (min 8 chars)" required>
-        <button type="submit" name="add_network" value="1">+ Add Network</button>
+        <div class="field-group">
+            <label for="ssid">WiFi Name (SSID)</label>
+            <input id="ssid" type="text" name="ssid" placeholder="WiFi Name (SSID)" required>
+        </div>
+        <div class="field-group">
+            <label for="wifi_password">WiFi Password</label>
+            <input id="wifi_password" type="password" name="wifi_password" placeholder="WiFi Password (min 8 chars)" required>
+            <p class="form-note">Passwords are stored encrypted and hidden from the dashboard.</p>
+        </div>
+        <div class="form-actions">
+            <button type="submit" name="add_network" value="1">Add Network</button>
+        </div>
     </form>
 </div>
 
 <div class="card">
-    <h3>Saved Networks (tried in this order)</h3>
+    <h3>Saved Networks</h3>
+    <p class="form-note">Your device will try saved networks in order until it connects.</p>
     <?php if (!$networks): ?>
-        <p style="color:#94a3b8;">No backup networks saved yet. Your device's primary network (set during first-time setup) is used until you add more here.</p>
+        <div class="empty-state">
+            <h4>No backup networks saved</h4>
+            <p>The device's primary network remains active until you add a backup network here.</p>
+        </div>
     <?php endif; ?>
     <?php foreach ($networks as $i => $n): ?>
         <div class="card-list-item status-tracking">
             <span><?= $i + 1 ?>. <span class="mono"><?= htmlspecialchars($n['ssid']) ?></span></span>
-            <span style="color:#94a3b8;">•••••••• (password hidden)</span>
+            <span class="form-note">•••••••• (password hidden)</span>
             <form method="POST" style="margin:0; width:auto;">
                 <?= csrf_field() ?>
                 <input type="hidden" name="remove_id" value="<?= $n['id'] ?>">
@@ -92,7 +116,7 @@ require 'includes/header.php';
 
 <div class="card">
     <h3>Reset Device to Setup Mode</h3>
-    <p style="color:#94a3b8; font-size:13px;">To reconfigure from scratch (e.g. lost/changed all networks), hold the physical button on your ESP32 for 3+ seconds during power-on. This wipes saved WiFi config and relaunches the setup hotspot ("BLE-Guard-Setup").</p>
+    <p class="form-note">To reconfigure from scratch, hold the ESP32 button for 3+ seconds during power-up. This clears saved WiFi settings and launches the setup hotspot.</p>
 </div>
 
 <?php endif; ?>

@@ -46,38 +46,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 require 'includes/header.php';
 ?>
 
-<h2>Account Settings</h2>
-<?php if ($message): ?><p style="color:var(--safe);"><?= htmlspecialchars($message) ?></p><?php endif; ?>
+<div class="page-hero">
+    <p class="eyebrow">Account Management</p>
+    <h2>Account Settings</h2>
+    <p class="hero-subtitle">Manage password security, device API access, and account actions for your BLE Guard deployment.</p>
+</div>
+
+<?php if ($message): ?><div class="alert safe"><?= htmlspecialchars($message) ?></div><?php endif; ?>
 
 <div class="card">
     <h3>Change Password</h3>
     <form method="POST">
         <?= csrf_field() ?>
-        <input type="password" name="new_password" placeholder="New password (min 6 chars)" required>
-        <button type="submit">Update Password</button>
+        <div class="field-group">
+            <label for="new_password">New password</label>
+            <input id="new_password" type="password" name="new_password" placeholder="New password (min 6 chars)" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit">Update Password</button>
+        </div>
     </form>
 </div>
 
 <div class="card">
     <h3>Regenerate API Key</h3>
-    <p style="color:#94a3b8; font-size:13px;">Use this if your API key was ever exposed (e.g. shown in a screenshot). The old key stops working immediately.</p>
+    <p class="form-note">Create a new device API key if your current key may have been exposed. The previous key is invalidated immediately.</p>
     <?php if ($newApiKey): ?>
         <div class="card mono" style="word-break: break-all; border-color: var(--safe);"><?= htmlspecialchars($newApiKey) ?></div>
         <p class="error">⚠ Copy this now and update your ESP32 firmware - it won't be shown again.</p>
     <?php endif; ?>
     <form method="POST">
         <?= csrf_field() ?>
-        <button type="submit" name="regenerate_key" value="1" class="secondary">Regenerate API Key</button>
+        <div class="form-actions">
+            <button type="submit" name="regenerate_key" value="1" class="secondary">Regenerate API Key</button>
+        </div>
     </form>
 </div>
 
-<div class="card" style="border-color: var(--danger);">
-    <h3 style="color: var(--danger);">Danger Zone: Delete Account</h3>
-    <p style="color:#94a3b8; font-size:13px;">This permanently deletes your account and ALL associated data (devices, detection history, whitelist). This cannot be undone.</p>
+<div class="card danger-card">
+    <h3>Danger Zone: Delete Account</h3>
+    <p class="form-note">This permanently deletes your account and all associated data, including devices, event history, and whitelist entries.</p>
     <form method="POST" onsubmit="return confirm('This is permanent. Are you absolutely sure?');">
         <?= csrf_field() ?>
-        <input type="text" name="confirm_delete" placeholder="Type DELETE to confirm" required>
-        <button type="submit" name="delete_account" value="1" class="danger" style="width:auto;">Delete My Account</button>
+        <div class="field-group">
+            <label for="confirm_delete">Type DELETE to confirm</label>
+            <input id="confirm_delete" type="text" name="confirm_delete" placeholder="DELETE" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit" name="delete_account" value="1" class="danger">Delete My Account</button>
+        </div>
     </form>
 </div>
 

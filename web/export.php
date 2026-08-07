@@ -98,16 +98,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate'])) {
 require 'includes/header.php';
 ?>
 
-<h2>Export Report</h2>
+<div class="page-hero">
+    <p class="eyebrow">Security Reports</p>
+    <h2>Export Detection Data</h2>
+    <p class="hero-subtitle">Create a downloadable PDF report of BLE events and suspicious activity for review or incident records.</p>
+</div>
+
 <div class="card">
-    <p style="color:#94a3b8;">Generates a PDF with all detection events in the selected date range - useful as evidence if reporting an incident.</p>
+    <p class="form-note">The exported report includes all device events for your account within the selected date range.</p>
     <form method="POST">
         <?= csrf_field() ?>
-        <label>Start date</label>
-        <input type="date" name="start_date" required>
-        <label>End date</label>
-        <input type="date" name="end_date" required>
-        <button type="submit" name="generate" value="1">Generate PDF Report</button>
+        <div class="field-group">
+            <label>Start date</label>
+            <input type="date" name="start_date" required>
+        </div>
+        <div class="field-group">
+            <label>End date</label>
+            <input type="date" name="end_date" required>
+        </div>
+        <div class="form-actions">
+            <button type="submit" name="generate" value="1">Generate PDF Report</button>
+        </div>
     </form>
 </div>
 

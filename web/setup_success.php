@@ -17,21 +17,28 @@ $qrPayload = json_encode(['api_key' => $apiKey, 'server_host' => $serverHost]);
 </head>
 <body>
     <div class="auth-box">
-        <h2>✅ Account Created!</h2>
-        <p>Copy this API key into your ESP32 firmware (<code>API_KEY</code>) so it can report to your dashboard:</p>
-        <div class="card mono" style="word-break: break-all;"><?= htmlspecialchars($apiKey) ?></div>
+        <h2>✅ Account Created</h2>
+        <div class="page-hero">
+            <p class="eyebrow">Setup Complete</p>
+            <h2>Device API Key</h2>
+            <p class="hero-subtitle">Save this key now to configure your ESP32 device. It is shown only once.</p>
+        </div>
+        <div class="card mono" style="word-break: break-all; margin-bottom: 20px;"><?= htmlspecialchars($apiKey) ?></div>
 
-        <p style="margin-top:20px;">Or, during your device's setup portal, tap <b>"Scan QR"</b> and point your phone at this code to fill in the API key and server automatically:</p>
-        <div id="qrcode" style="background:white; padding:12px; display:inline-block; border-radius:8px;"></div>
-        <script>
-            new QRCode(document.getElementById("qrcode"), {
-                text: <?= json_encode($qrPayload) ?>,
-                width: 200, height: 200
-            });
-        </script>
+        <div class="card">
+            <h3>QR Code for Setup</h3>
+            <p class="form-note">Scan this QR code in the ESP32 setup portal to automatically populate the API key and server host.</p>
+            <div id="qrcode" class="qr-display"></div>
+        </div>
 
-        <p class="error" style="margin-top:20px;">⚠ This key is shown only once and cannot be retrieved again. Keep it private — anyone with it can post fake events to your account. If lost, regenerate it from Account Settings.</p>
-        <a href="dashboard.php"><button>Go to Dashboard</button></a>
+        <div class="alert error" style="margin-top:20px;">⚠ This key is shown only once and cannot be retrieved again. Keep it private — anyone with it can post fake events to your account. If lost, regenerate it from Account Settings.</div>
+        <div class="form-actions"><a href="dashboard.php" class="button-link">Go to Dashboard</a></div>
     </div>
+    <script>
+        new QRCode(document.getElementById("qrcode"), {
+            text: <?= json_encode($qrPayload) ?>,
+            width: 200, height: 200
+        });
+    </script>
 </body>
 </html>

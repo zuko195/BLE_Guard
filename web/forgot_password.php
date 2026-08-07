@@ -39,13 +39,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="auth-box">
         <h2>🛡 Reset Password</h2>
-        <?php if ($message): ?><p style="color:var(--safe);"><?= htmlspecialchars($message) ?></p><?php endif; ?>
+        <?php if ($message): ?><div class="alert safe"><?= htmlspecialchars($message) ?></div><?php endif; ?>
         <form method="POST">
             <?= csrf_field() ?>
-            <input type="email" name="email" placeholder="Your account email" required>
-            <button type="submit">Send Reset Link</button>
+            <div class="field-group">
+                <label for="email">Email</label>
+                <input id="email" type="email" name="email" placeholder="Your account email" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit">Send Reset Link</button>
+            </div>
         </form>
-        <p><a href="login.php">Back to login</a></p>
+        <div class="auth-footer">
+            <p><a href="login.php">Back to login</a></p>
+        </div>
     </div>
 </body>
 </html>

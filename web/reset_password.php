@@ -38,17 +38,22 @@ if (!$user) {
     <div class="auth-box">
         <h2>🛡 Set New Password</h2>
         <?php if ($error): ?>
-            <p class="error"><?= htmlspecialchars($error) ?></p>
-            <p><a href="forgot_password.php">Request a new reset link</a></p>
+            <div class="alert error"><?= htmlspecialchars($error) ?></div>
+            <div class="auth-footer"><p><a href="forgot_password.php">Request a new reset link</a></p></div>
         <?php elseif ($success): ?>
-            <p style="color:var(--safe);">Password updated successfully.</p>
-            <a href="login.php"><button>Go to Login</button></a>
+            <div class="alert safe">Password updated successfully.</div>
+            <div class="form-actions"><a href="login.php" class="button-link">Go to Login</a></div>
         <?php else: ?>
             <form method="POST">
                 <?= csrf_field() ?>
                 <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
-                <input type="password" name="new_password" placeholder="New password (min 6 chars)" required>
-                <button type="submit">Update Password</button>
+                <div class="field-group">
+                    <label for="new_password">New password</label>
+                    <input id="new_password" type="password" name="new_password" placeholder="New password (min 6 chars)" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Update Password</button>
+                </div>
             </form>
         <?php endif; ?>
     </div>

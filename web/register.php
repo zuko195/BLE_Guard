@@ -51,15 +51,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="auth-box">
         <h2>🛡 Create Your BLE Guard Account</h2>
-        <?php if ($error): ?><p class="error"><?= htmlspecialchars($error) ?></p><?php endif; ?>
+        <?php if ($error): ?><div class="alert error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
         <form method="POST">
             <?= csrf_field() ?>
-            <input type="text" name="username" placeholder="Username" required>
-            <input type="email" name="email" placeholder="Email" required>
-            <input type="password" name="password" placeholder="Password (min 6 chars)" required>
-            <button type="submit">Register</button>
+            <div class="field-group">
+                <label for="username">Username</label>
+                <input id="username" type="text" name="username" placeholder="Username" required>
+            </div>
+            <div class="field-group">
+                <label for="email">Email</label>
+                <input id="email" type="email" name="email" placeholder="Email" required>
+            </div>
+            <div class="field-group">
+                <label for="password">Password</label>
+                <input id="password" type="password" name="password" placeholder="Password (min 6 chars)" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit">Register</button>
+            </div>
         </form>
-        <p>Already have an account? <a href="login.php">Login</a></p>
+        <div class="auth-footer">
+            <p>Already have an account? <a href="login.php">Login</a></p>
+        </div>
     </div>
 </body>
 </html>
