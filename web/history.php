@@ -145,8 +145,19 @@ const chartOpts = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-        y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: true }
+        x: {
+            ticks: { color: '#94a3b8' },
+            grid: { color: '#1e293b' }
+        },
+        y: {
+            ticks: {
+                color: '#94a3b8',
+                precision: 0,
+                callback: value => Number(value).toFixed(0)
+            },
+            grid: { color: '#1e293b' },
+            beginAtZero: true
+        }
     },
     plugins: { legend: { labels: { color: '#e2e8f0' } } }
 };
