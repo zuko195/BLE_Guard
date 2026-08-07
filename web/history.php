@@ -47,9 +47,9 @@ if ($deviceIds) {
     $suspiciousByDay = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$sightingsLabels = json_encode(array_column($sightingsByDay, 'day'));
+$sightingsLabels = json_encode($sightingsByDay ? range(1, count($sightingsByDay)) : []);
 $sightingsData = json_encode(array_column($sightingsByDay, 'cnt'));
-$suspiciousLabels = json_encode(array_column($suspiciousByDay, 'day'));
+$suspiciousLabels = json_encode($suspiciousByDay ? range(1, count($suspiciousByDay)) : []);
 $suspiciousData = json_encode(array_column($suspiciousByDay, 'cnt'));
 $hasDeviceData = !empty($deviceList);
 $hasSightingsData = !empty($sightingsByDay);
