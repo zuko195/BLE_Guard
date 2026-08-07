@@ -47,7 +47,13 @@ if ($deviceIds) {
 require 'includes/header.php';
 ?>
 
-<h2>Welcome, <?= htmlspecialchars($_SESSION['username']) ?></h2>
+<div class="dashboard-hero">
+    <div>
+        <p class="eyebrow">BLE Guard</p>
+        <h2>BLE Security Monitoring</h2>
+        <p class="hero-subtitle">Welcome back, <?= htmlspecialchars($_SESSION['username']) ?>. Review current detections and suspicious activity at a glance.</p>
+    </div>
+</div>
 
 <?php if (!$devices): ?>
     <div class="card">
@@ -56,19 +62,51 @@ require 'includes/header.php';
     </div>
 <?php else: ?>
 
-<div class="card">
-    <h3>Currently Detected Devices</h3>
+<div class="card dashboard-card">
+    <div class="card-heading">
+        <h3>Currently Detected Devices</h3>
+        <span class="card-caption"><?= count($currentlyTracked) ?> active</span>
+    </div>
     <?php if (!$currentlyTracked): ?>
-        <p style="color:#94a3b8;">No devices detected yet. Once your ESP32 starts scanning, they'll appear here.</p>
-    <?php endif; ?>
-    <?php foreach ($currentlyTracked as $d): ?>
-        <div class="card-list-item status-<?= $d['status'] ?>">
-            <span class="mono"><a href="device_timeline.php?mac=<?= urlencode($d['mac_address']) ?>"><?= htmlspecialchars($d['mac_address']) ?></a></span>
-            <span>RSSI: <?= htmlspecialchars($d['rssi']) ?></span>
-            <span>Threat: <?= htmlspecialchars($d['threat_score'] ?? 0) ?>/100</span>
-            <span class="badge badge-<?= $d['status'] ?>"><?= htmlspecialchars($d['status']) ?></span>
+        <div class="empty-state">
+            <h4>No devices detected</h4>
+            <p>No BLE devices have been detected within the last 15 minutes.</p>
         </div>
-    <?php endforeach; ?>
+    <?php else: ?>
+        <div class="device-list">
+            <?php foreach ($currentlyTracked as $d): ?>
+                <?php
+                $statusText = $d['status'] === 'suspicious' ? 'Suspicious' : ($d['status'] === 'whitelisted' ? 'Whitelisted' : 'Normal');
+                $statusClass = $d['status'] === 'suspicious' ? 'badge-suspicious' : ($d['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
+                $threatValue = (int)($d['threat_score'] ?? 0);
+                $threatClass = $threatValue >= 70 ? 'threat-high' : ($threatValue >= 40 ? 'threat-medium' : 'threat-low');
+                ?>
+                <div class="device-item status-<?= htmlspecialchars($d['status']) ?>">
+                    <div class="device-primary">
+                        <div class="device-mac mono"><a href="device_timeline.php?mac=<?= urlencode($d['mac_address']) ?>"><?= htmlspecialchars($d['mac_address']) ?></a></div>
+                        <div class="device-meta"><?= htmlspecialchars($d['vendor'] ?? 'Unknown vendor') ?> · <?= htmlspecialchars($d['device_type'] ?? 'Unknown type') ?></div>
+                    </div>
+                    <div class="device-stats">
+                        <div class="device-stat">
+                            <span class="stat-label">RSSI</span>
+                            <span class="stat-value"><?= htmlspecialchars($d['rssi']) ?></span>
+                        </div>
+                        <div class="device-stat">
+                            <span class="stat-label">Threat</span>
+                            <span class="threat-pill <?= $threatClass ?>"><?= $threatValue ?>/100</span>
+                        </div>
+                        <div class="device-stat">
+                            <span class="stat-label">Status</span>
+                            <span class="badge <?= $statusClass ?>"><?= htmlspecialchars($statusText) ?></span>
+                        </div>
+                    </div>
+                    <?php if (!empty($d['event_time'])): ?>
+                        <div class="device-time"><?= htmlspecialchars($d['event_time']) ?></div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <?php
@@ -76,7 +114,7 @@ require 'correlate.php';
 $insights = getCorrelationInsights($pdo, $deviceIds);
 if ($insights):
 ?>
-<div class="card">
+<div class="card card-secondary">
     <h3>🔎 Correlation Insights</h3>
     <?php foreach ($insights as $insight):
         $color = $insight['severity'] === 'high' ? 'var(--danger)' : 'var(--warn)';
@@ -87,29 +125,46 @@ if ($insights):
 <?php endif; ?>
 
 <div class="stat-row">
-    <div class="stat-box"><div class="label">Devices Registered</div><div class="value"><?= count($devices) ?></div></div>
-    <div class="stat-box"><div class="label">Recent Events</div><div class="value"><?= count($events) ?></div></div>
+    <div class="stat-box"><div class="label">Devices</div><div class="value"><?= count($devices) ?></div></div>
+    <div class="stat-box"><div class="label">Currently Detected</div><div class="value"><?= count($currentlyTracked) ?></div></div>
     <div class="stat-box danger"><div class="label">Suspicious Devices</div><div class="value"><?= $suspiciousCount ?></div></div>
+    <div class="stat-box"><div class="label">Events</div><div class="value"><?= count($events) ?></div></div>
 </div>
 
 <div class="card">
-    <h3>Recent Detection Events</h3>
+    <div class="card-heading">
+        <h3>Recent Detection Events</h3>
+        <span class="card-caption">Latest activity from your BLE network</span>
+    </div>
     <input type="text" id="searchBox" placeholder="Filter by MAC, vendor, or status..." onkeyup="filterTable()">
-    <table id="eventsTable">
-        <tr><th>Time</th><th>MAC</th><th>Name</th><th>Vendor</th><th>Type</th><th>RSSI</th><th>Sightings</th><th>Status</th></tr>
-        <?php foreach ($events as $e): ?>
-        <tr>
-            <td><?= htmlspecialchars($e['event_time']) ?></td>
-            <td class="mono"><?= htmlspecialchars($e['mac_address']) ?></td>
-            <td><?= htmlspecialchars($e['device_name'] ?? '-') ?></td>
-            <td><?= htmlspecialchars($e['vendor'] ?? '-') ?></td>
-            <td><?= htmlspecialchars($e['device_type'] ?? '-') ?></td>
-            <td><?= htmlspecialchars($e['rssi']) ?></td>
-            <td><?= htmlspecialchars($e['sighting_count']) ?></td>
-            <td><span class="badge badge-<?= $e['status'] ?>"><?= htmlspecialchars($e['status']) ?></span></td>
-        </tr>
-        <?php endforeach; ?>
-    </table>
+    <div class="table-shell">
+        <table id="eventsTable">
+            <tr><th>Time</th><th>MAC</th><th>Name</th><th>Vendor</th><th>Type</th><th>RSSI</th><th>Sightings</th><th>Status</th></tr>
+            <?php foreach ($events as $e): ?>
+                <?php
+                $eventStatusText = $e['status'] === 'suspicious' ? 'Suspicious' : ($e['status'] === 'whitelisted' ? 'Whitelisted' : 'Normal');
+                $eventStatusClass = $e['status'] === 'suspicious' ? 'badge-suspicious' : ($e['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
+                $eventThreatValue = (int)($e['threat_score'] ?? 0);
+                $eventThreatClass = $eventThreatValue >= 70 ? 'threat-high' : ($eventThreatValue >= 40 ? 'threat-medium' : 'threat-low');
+                ?>
+            <tr>
+                <td><?= htmlspecialchars($e['event_time']) ?></td>
+                <td class="mono"><?= htmlspecialchars($e['mac_address']) ?></td>
+                <td><?= htmlspecialchars($e['device_name'] ?? '-') ?></td>
+                <td><?= htmlspecialchars($e['vendor'] ?? '-') ?></td>
+                <td><?= htmlspecialchars($e['device_type'] ?? '-') ?></td>
+                <td><?= htmlspecialchars($e['rssi']) ?></td>
+                <td><?= htmlspecialchars($e['sighting_count']) ?></td>
+                <td>
+                    <div class="event-meta">
+                        <span class="badge <?= $eventStatusClass ?>"><?= htmlspecialchars($eventStatusText) ?></span>
+                        <span class="threat-pill <?= $eventThreatClass ?>"><?= $eventThreatValue ?>/100</span>
+                    </div>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+        </table>
+    </div>
 </div>
 
 <script>
