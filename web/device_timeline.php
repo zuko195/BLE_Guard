@@ -3,75 +3,146 @@ session_start();
 require 'config.php';
 if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
 $userId = $_SESSION['user_id'];
-$mac = $_GET['mac'] ?? '';
+
+$mac = isset($_GET['mac']) ? trim((string)$_GET['mac']) : '';
+$mac = preg_replace('/\s+/', '', $mac);
+$macIsValid = $mac !== '' && preg_match('/^[0-9A-Fa-f:.\-]+$/', $mac) === 1;
 
 $stmt = $pdo->prepare("SELECT id FROM devices WHERE user_id = ?");
 $stmt->execute([$userId]);
 $deviceIds = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
 
 $events = [];
-if ($deviceIds && $mac) {
+$latestEvent = null;
+$summaryVendor = 'Unknown';
+$summaryType = 'Unknown';
+$summaryThreat = 0;
+$summaryStatus = 'Normal';
+$summaryStatusClass = 'badge-safe';
+
+if ($deviceIds && $macIsValid) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
     $stmt = $pdo->prepare("
-        SELECT * FROM ble_events WHERE device_id IN ($placeholders) AND mac_address = ?
-        ORDER BY event_time ASC
+        SELECT *
+        FROM ble_events
+        WHERE device_id IN ($placeholders)
+          AND mac_address = ?
+        ORDER BY event_time DESC
     ");
     $stmt->execute(array_merge($deviceIds, [$mac]));
     $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Group events into sessions: a gap of >10 minutes between consecutive
-// sightings starts a new session. This turns a flat event log into a
-// human-readable narrative of "visits" rather than isolated timestamps.
-$sessions = [];
-$currentSession = null;
-$SESSION_GAP_SECONDS = 600;
-
-foreach ($events as $e) {
-    $t = strtotime($e['event_time']);
-    if ($currentSession === null || ($t - $currentSession['end_ts']) > $SESSION_GAP_SECONDS) {
-        if ($currentSession !== null) $sessions[] = $currentSession;
-        $currentSession = [
-            'start' => $e['event_time'], 'start_ts' => $t,
-            'end' => $e['event_time'], 'end_ts' => $t,
-            'events' => [], 'max_rssi' => $e['rssi'], 'max_threat' => $e['threat_score'],
-            'locations' => []
-        ];
+if ($events) {
+    $latestEvent = $events[0];
+    $summaryVendor = $latestEvent['vendor'] ?? 'Unknown';
+    if ($summaryVendor === '' || $summaryVendor === null) {
+        foreach ($events as $event) {
+            if (!empty($event['vendor'])) {
+                $summaryVendor = $event['vendor'];
+                break;
+            }
+        }
     }
-    $currentSession['end'] = $e['event_time'];
-    $currentSession['end_ts'] = $t;
-    $currentSession['events'][] = $e;
-    $currentSession['max_rssi'] = max($currentSession['max_rssi'], $e['rssi']);
-    $currentSession['max_threat'] = max($currentSession['max_threat'], $e['threat_score']);
-    if ($e['location_id']) $currentSession['locations'][$e['location_id']] = true;
+
+    $summaryType = $latestEvent['device_type'] ?? 'Unknown';
+    if ($summaryType === '' || $summaryType === null) {
+        foreach ($events as $event) {
+            if (!empty($event['device_type'])) {
+                $summaryType = $event['device_type'];
+                break;
+            }
+        }
+    }
+
+    $summaryThreat = (int)($latestEvent['threat_score'] ?? 0);
+
+    if (($latestEvent['status'] ?? 'tracking') === 'suspicious') {
+        $summaryStatus = 'Suspicious';
+        $summaryStatusClass = 'badge-suspicious';
+    } elseif (($latestEvent['status'] ?? 'tracking') === 'whitelisted') {
+        $summaryStatus = 'Whitelisted';
+        $summaryStatusClass = 'badge-whitelisted';
+    } else {
+        $summaryStatus = 'Normal';
+        $summaryStatusClass = 'badge-safe';
+    }
 }
-if ($currentSession !== null) $sessions[] = $currentSession;
 
 require 'includes/header.php';
 ?>
 
-<h2>Device Timeline: <span class="mono"><?= htmlspecialchars($mac) ?></span></h2>
-
-<?php if (!$sessions): ?>
-    <div class="card"><p style="color:#94a3b8;">No events found for this device.</p></div>
-<?php endif; ?>
-
-<?php foreach ($sessions as $i => $s):
-    $durationMin = round(($s['end_ts'] - $s['start_ts']) / 60);
-    $threatColor = $s['max_threat'] >= 70 ? 'var(--danger)' : ($s['max_threat'] >= 40 ? 'var(--warn)' : 'var(--safe)');
-?>
-<div class="card" style="border-left: 4px solid <?= $threatColor ?>;">
-    <h3>Session <?= $i + 1 ?></h3>
-    <p><?= htmlspecialchars($s['start']) ?> → <?= htmlspecialchars($s['end']) ?> (<?= $durationMin ?> min)</p>
-    <p>Events: <?= count($s['events']) ?> | Max RSSI: <?= $s['max_rssi'] ?> | Max Threat Score: <span style="color:<?= $threatColor ?>; font-weight:bold;"><?= $s['max_threat'] ?>/100</span></p>
-    <p>Distinct locations seen in this session: <?= count($s['locations']) ?></p>
+<div class="timeline-header">
+    <a class="back-link" href="dashboard.php">← Back to Dashboard</a>
+    <h2>Device Timeline</h2>
+    <p class="timeline-subtitle">Detection history for <span class="mono"><?= htmlspecialchars($mac !== '' ? $mac : 'unknown device') ?></span></p>
 </div>
-<?php endforeach; ?>
 
-<?php if (count($sessions) > 1): ?>
+<div class="card timeline-summary">
+    <div class="summary-grid">
+        <div>
+            <div class="summary-label">Device</div>
+            <div class="summary-value mono"><?= htmlspecialchars($mac !== '' ? $mac : '-') ?></div>
+        </div>
+        <div>
+            <div class="summary-label">Vendor</div>
+            <div class="summary-value"><?= htmlspecialchars($summaryVendor) ?></div>
+        </div>
+        <div>
+            <div class="summary-label">Type</div>
+            <div class="summary-value"><?= htmlspecialchars($summaryType) ?></div>
+        </div>
+        <div>
+            <div class="summary-label">Current Threat</div>
+            <div class="summary-value">
+                <span class="threat-pill <?= $summaryThreat >= 70 ? 'threat-high' : ($summaryThreat >= 40 ? 'threat-medium' : 'threat-low') ?>"><?= $summaryThreat ?>/100</span>
+            </div>
+        </div>
+        <div>
+            <div class="summary-label">Current Status</div>
+            <div class="summary-value"><span class="badge <?= $summaryStatusClass ?>"><?= htmlspecialchars($summaryStatus) ?></span></div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
-    <p style="color:var(--accent);">📍 This device has appeared across <?= count($sessions) ?> separate sessions — review whether these occurred in different physical locations (see location_id per session above) to assess stalking risk.</p>
+    <?php if (!$events): ?>
+        <div class="empty-state">
+            <h4>No events found for this device.</h4>
+            <p>No BLE detections were found for the selected MAC address in your available device history.</p>
+        </div>
+    <?php else: ?>
+        <div class="timeline-list">
+            <?php foreach ($events as $event): ?>
+                <?php
+                $eventStatus = ($event['status'] ?? 'tracking') === 'suspicious' ? 'Suspicious' : (($event['status'] ?? 'tracking') === 'whitelisted' ? 'Whitelisted' : 'Normal');
+                $eventStatusClass = ($event['status'] ?? 'tracking') === 'suspicious' ? 'badge-suspicious' : ((($event['status'] ?? 'tracking') === 'whitelisted') ? 'badge-whitelisted' : 'badge-safe');
+                $eventThreat = (int)($event['threat_score'] ?? 0);
+                $eventThreatClass = $eventThreat >= 70 ? 'threat-high' : ($eventThreat >= 40 ? 'threat-medium' : 'threat-low');
+                $eventCardClass = ($event['status'] ?? 'tracking') === 'suspicious' ? 'timeline-event suspicious' : 'timeline-event';
+                ?>
+                <div class="<?= $eventCardClass ?>">
+                    <div class="timeline-time"><?= htmlspecialchars($event['event_time']) ?></div>
+                    <div class="timeline-body">
+                        <div class="timeline-meta">
+                            <span class="badge <?= $eventStatusClass ?>"><?= htmlspecialchars($eventStatus) ?></span>
+                            <span class="threat-pill <?= $eventThreatClass ?>"><?= $eventThreat ?>/100</span>
+                            <span class="timeline-attr">RSSI <?= htmlspecialchars($event['rssi']) ?></span>
+                        </div>
+                        <div class="timeline-details">
+                            <span><?= htmlspecialchars($event['vendor'] ?? 'Unknown vendor') ?></span>
+                            <span>·</span>
+                            <span><?= htmlspecialchars($event['device_type'] ?? 'Unknown type') ?></span>
+                            <?php if (!empty($event['sighting_count'])): ?>
+                                <span>·</span>
+                                <span>Sightings <?= htmlspecialchars($event['sighting_count']) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </div>
-<?php endif; ?>
 
 <?php require 'includes/footer.php'; ?>
