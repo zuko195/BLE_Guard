@@ -117,7 +117,7 @@ a:hover { text-decoration: underline; }
 .device-list { display: grid; gap: 10px; }
 .device-item {
   display: grid;
-  grid-template-columns: 1.3fr 1fr auto;
+  grid-template-columns: minmax(0, 1.4fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -129,10 +129,15 @@ a:hover { text-decoration: underline; }
 .device-item.status-suspicious { border-left-color: var(--danger); }
 .device-item.status-whitelisted { border-left-color: var(--safe); }
 .device-primary { min-width: 0; }
-.device-mac { font-weight: 600; margin-bottom: 4px; }
+.device-mac {
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
 .device-meta { color: #94a3b8; font-size: 13px; }
-.device-stats { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.device-stat { display: flex; flex-direction: column; min-width: 70px; }
+.device-stats { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.device-stat { display: flex; flex-direction: column; min-width: 78px; }
 .stat-label {
   color: #94a3b8;
   font-size: 11px;
@@ -140,8 +145,15 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.08em;
   margin-bottom: 2px;
 }
-.stat-value { font-weight: 600; }
+.stat-value { font-weight: 600; font-size: 16px; }
 .device-time { color: #94a3b8; font-size: 12px; text-align: right; }
+
+.chart-shell {
+  position: relative;
+  height: 260px;
+  width: 100%;
+}
+.chart-shell canvas { width: 100% !important; height: 100% !important; }
 
 /* Status badges */
 .badge {
@@ -219,8 +231,20 @@ button.danger { background: var(--danger); color: white; }
 
 .auth-box { max-width: 380px; margin: 80px auto; }
 .error { color: var(--danger); font-size: 14px; }
-.toggle-window { display: flex; gap: 8px; margin-bottom: 16px; }
-.toggle-window button { width: auto; padding: 6px 14px; font-size: 13px; }
+.toggle-window {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.toggle-window a { display: inline-flex; }
+.toggle-window button {
+  width: auto;
+  min-width: 96px;
+  padding: 8px 16px;
+  font-size: 13px;
+  margin: 0;
+}
 .toggle-window button.inactive { background: transparent; border: 1px solid var(--border); color: #94a3b8; }
 
 /* Timeline page */
@@ -273,6 +297,7 @@ button.danger { background: var(--danger); color: white; }
   .sidenav { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
   .main-content { padding: 16px; }
   .device-item { grid-template-columns: 1fr; }
+  .device-stats { justify-content: flex-start; }
   .device-time { text-align: left; }
   .stat-row { flex-direction: column; }
   .timeline-event { grid-template-columns: 1fr; }
@@ -282,6 +307,10 @@ button.danger { background: var(--danger); color: white; }
   .sidenav .brand { font-size: 16px; }
   .sidenav a { padding: 10px 16px; }
   .dashboard-hero h2 { font-size: 20px; }
+  .toggle-window { gap: 6px; }
+  .toggle-window a { width: 100%; }
+  .toggle-window button { width: 100%; justify-content: center; }
+  .chart-shell { height: 220px; }
   table { min-width: 560px; }
   .stat-box .value { font-size: 20px; }
 }
@@ -312,6 +341,3 @@ button.danger { background: var(--danger); color: white; }
 
 .auth-box { max-width: 380px; margin: 80px auto; }
 .error { color: var(--danger); font-size: 14px; }
-.toggle-window { display: flex; gap: 8px; margin-bottom: 16px; }
-.toggle-window button { width: auto; padding: 6px 14px; font-size: 13px; }
-.toggle-window button.inactive { background: transparent; border: 1px solid var(--border); color: #94a3b8; }
