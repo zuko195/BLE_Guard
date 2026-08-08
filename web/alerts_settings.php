@@ -38,11 +38,11 @@ require 'includes/header.php';
         <!-- Premium Custom Switch Toggle -->
         <div class="switch-container">
             <div class="switch-label-group">
-                <span class="switch-title">Threat Alerts Status: <?= $user['alerts_enabled'] ? '<span style="color: var(--accent);">Enabled</span>' : '<span style="color: #64748b;">Disabled</span>' ?></span>
+                <span class="switch-title">Threat Alerts Status: <span id="toggleStatusText"><?= $user['alerts_enabled'] ? '<span style="color: var(--accent);">Enabled</span>' : '<span style="color: #64748b;">Disabled</span>' ?></span></span>
                 <span class="switch-description">Receive immediate notifications on potential trackers and dangerous BLE activity.</span>
             </div>
             <label class="switch">
-                <input type="checkbox" name="alerts_enabled" value="1" <?= $user['alerts_enabled'] ? 'checked' : '' ?>>
+                <input type="checkbox" id="alertsToggle" name="alerts_enabled" value="1" <?= $user['alerts_enabled'] ? 'checked' : '' ?> onchange="updateToggleLabel(this)">
                 <span class="slider"></span>
             </label>
         </div>
@@ -71,5 +71,16 @@ require 'includes/header.php';
         </ul>
     </div>
 </div>
+
+<script>
+function updateToggleLabel(checkbox) {
+    const label = document.getElementById('toggleStatusText');
+    if (checkbox.checked) {
+        label.innerHTML = '<span style="color: var(--accent);">Enabled</span>';
+    } else {
+        label.innerHTML = '<span style="color: #64748b;">Disabled</span>';
+    }
+}
+</script>
 
 <?php require 'includes/footer.php'; ?>

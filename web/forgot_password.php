@@ -28,7 +28,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isHttps = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ||
                    (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
         $protocol = $isHttps ? "https://" : "http://";
-        $resetLink = $protocol . $_SERVER['HTTP_HOST'] . "/reset_password.php?token=$token";
+        $dir = dirname($_SERVER['SCRIPT_NAME']);
+        $dir = ($dir === '/' || $dir === '\\') ? '' : $dir;
+        $resetLink = $protocol . $_SERVER['HTTP_HOST'] . $dir . "/reset_password.php?token=$token";
         sendPasswordResetEmail($email, $user['username'], $resetLink);
     }
 }

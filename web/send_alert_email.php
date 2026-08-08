@@ -6,8 +6,19 @@ use PHPMailer\PHPMailer\PHPMailer;
 
 // Retrieve SMTP configurations from environment variables, fallback to Gmail defaults
 define('SMTP_HOST', getenv('SMTP_HOST') ?: 'smtp.gmail.com');
-define('SMTP_PORT', intval(getenv('SMTP_PORT') ?: 587));
-define('SMTP_SECURE', getenv('SMTP_SECURE') ?: 'tls');
+
+$smtpPort = intval(getenv('SMTP_PORT') ?: 587);
+define('SMTP_PORT', $smtpPort);
+
+$smtpSecure = getenv('SMTP_SECURE');
+if ($smtpSecure === false) {
+    $smtpSecure = ($smtpPort === 465) ? 'ssl' : 'tls';
+}
+if (in_array(strtolower($smtpSecure), ['none', 'false', 'null', ''], true)) {
+    $smtpSecure = '';
+}
+define('SMTP_SECURE', $smtpSecure);
+
 define('SMTP_USER', getenv('SMTP_USER') ?: 'youremail@gmail.com');
 define('SMTP_PASS', getenv('SMTP_PASS') ?: 'your_16_char_app_password');
 define('SMTP_FROM_EMAIL', getenv('SMTP_FROM_EMAIL') ?: (SMTP_USER !== 'youremail@gmail.com' ? SMTP_USER : 'noreply@bleguard.local'));
