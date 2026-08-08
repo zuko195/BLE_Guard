@@ -19,12 +19,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($user) {
         $token = bin2hex(random_bytes(32));
-        $expires = date('Y-m-d H:i:s', time() + 3600); // 1 hour validity
-        $pdo->prepare("UPDATE users SET reset_token = ?, reset_expires = ? WHERE id = ?")
-            ->execute([$token, $expires, $user['id']]);
+        // Use DATE_ADD(NOW(), INTERVAL 1 HOUR) to prevent database vs PHP timezone mismatches
+        $pdo->prepare("UPDATE users SET reset_token = ?, reset_expires = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?")
+            ->execute([$token, $user['id']]);
 
         require_once 'send_alert_email.php';
-        $resetLink = "https://" . $_SERVER['HTTP_HOST'] . "/reset_password.php?token=$token";
+        // Dynamically detect protocol (HTTP/HTTPS) for local vs production environments
+        $isHttps = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ||
+                   (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        $protocol = $isHttps ? "https://" : "http://";
+        $resetLink = $protocol . $_SERVER['HTTP_HOST'] . "/reset_password.php?token=$token";
         sendPasswordResetEmail($email, $user['username'], $resetLink);
     }
 }

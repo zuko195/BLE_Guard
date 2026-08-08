@@ -34,23 +34,42 @@ require 'includes/header.php';
 <div class="card">
     <form method="POST">
         <?= csrf_field() ?>
-        <div class="field-group">
-            <label>
-                <input type="checkbox" name="alerts_enabled" <?= $user['alerts_enabled'] ? 'checked' : '' ?>>
-                Email me when a device is flagged suspicious
+
+        <!-- Premium Custom Switch Toggle -->
+        <div class="switch-container">
+            <div class="switch-label-group">
+                <span class="switch-title">Threat Alerts Status: <?= $user['alerts_enabled'] ? '<span style="color: var(--accent);">Enabled</span>' : '<span style="color: #64748b;">Disabled</span>' ?></span>
+                <span class="switch-description">Receive immediate notifications on potential trackers and dangerous BLE activity.</span>
+            </div>
+            <label class="switch">
+                <input type="checkbox" name="alerts_enabled" value="1" <?= $user['alerts_enabled'] ? 'checked' : '' ?>>
+                <span class="slider"></span>
             </label>
-            <p class="form-note">Suspicious-device alerts notify you when BLE activity appears to be tracking or dangerous.</p>
         </div>
+
+        <!-- Labeled Alert Destination with Lock Icon -->
         <div class="field-group">
-            <label>Alert destination</label>
-            <input type="email" value="<?= htmlspecialchars($user['email']) ?>" disabled>
-            <p class="form-note">Alerts are sent to your registered account email and cannot be changed here.</p>
+            <label>Alert Recipient Address</label>
+            <div style="position: relative; display: flex; align-items: center;">
+                <input type="email" value="<?= htmlspecialchars($user['email']) ?>" disabled style="padding-left: 36px;">
+                <span style="position: absolute; left: 12px; color: #64748b; font-size: 14px;">🔒</span>
+            </div>
+            <p class="form-note">Alerts are bound to your primary login account email address and cannot be changed here.</p>
         </div>
+
         <div class="form-actions">
             <button type="submit" class="primary">Save Changes</button>
-            <span class="status-chip"><?= $user['alerts_enabled'] ? 'Enabled' : 'Disabled' ?></span>
         </div>
     </form>
+
+    <div class="card card-secondary" style="margin-top: 24px; padding: 14px 16px; background: rgba(255,255,255,0.01);">
+        <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent);">⚡ Alert Trigger Conditions</h3>
+        <ul style="margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 13px; line-height: 1.6;">
+            <li>A suspicious BLE beacon follows you across multiple distinct locations.</li>
+            <li>The signal RSSI variance indicates a tracker is maintaining close proximity.</li>
+            <li>Known anti-stalking fingerprint matches (such as Apple FindMy/AirTag networks) are flagged.</li>
+        </ul>
+    </div>
 </div>
 
 <?php require 'includes/footer.php'; ?>
