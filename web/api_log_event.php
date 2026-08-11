@@ -97,12 +97,13 @@ if ($status === 'suspicious') {
     $recentAlertCount = $stmt->fetchColumn();
 
     if ($recentAlertCount == 0) { // no other suspicious alert for this MAC in the cooldown window
-        $stmt = $pdo->prepare("SELECT email, alerts_enabled FROM users WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT email, alert_email, alerts_enabled FROM users WHERE id = ?");
         $stmt->execute([$device['user_id']]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($user && $user['alerts_enabled']) {
+            $recipient = !empty($user['alert_email']) ? $user['alert_email'] : $user['email'];
             require_once 'send_alert_email.php';
-            sendSuspiciousDeviceAlert($user['email'], $input['mac_address'], $input['rssi'] ?? null);
+            sendSuspiciousDeviceAlert($recipient, $input['mac_address'], $input['rssi'] ?? null);
         }
     }
 }

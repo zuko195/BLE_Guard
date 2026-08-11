@@ -7,16 +7,33 @@ $userId = $_SESSION['user_id'];
 
 $message = '';
 $messageType = 'safe';
+$stmt = $pdo->prepare("SELECT email, alert_email, alerts_enabled FROM users WHERE id = ?");
+$stmt->execute([$userId]);
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
     $enabled = isset($_POST['alerts_enabled']) ? 1 : 0;
-    $pdo->prepare("UPDATE users SET alerts_enabled = ? WHERE id = ?")->execute([$enabled, $userId]);
-    $message = 'Email alert settings saved.';
-}
+    $submittedEmail = trim($_POST['alert_email'] ?? '');
+    $alertEmail = $submittedEmail === '' ? null : $submittedEmail;
 
-$stmt = $pdo->prepare("SELECT email, alerts_enabled FROM users WHERE id = ?");
-$stmt->execute([$userId]);
-$user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($alertEmail !== null && !filter_var($alertEmail, FILTER_VALIDATE_EMAIL)) {
+        $message = 'Please enter a valid alert recipient email address.';
+        $messageType = 'error';
+    } else {
+        if ($alertEmail !== null && $alertEmail === $user['email'] && $user['alert_email'] === null) {
+            $alertEmail = null;
+        }
+
+        $stmt = $pdo->prepare("UPDATE users SET alerts_enabled = ?, alert_email = ? WHERE id = ?");
+        $stmt->execute([$enabled, $alertEmail, $userId]);
+        $message = 'Email alert settings saved.';
+        $messageType = 'safe';
+
+        $user['alerts_enabled'] = $enabled;
+        $user['alert_email'] = $alertEmail;
+    }
+}
 
 require 'includes/header.php';
 ?>
@@ -47,18 +64,22 @@ require 'includes/header.php';
             </label>
         </div>
 
-        <!-- Labeled Alert Destination with Lock Icon -->
+        <!-- Labeled Alert Recipient Email with Lock Icon -->
         <div class="field-group">
-            <label>Alert Recipient Address</label>
-            <div style="position: relative; display: flex; align-items: center;">
-                <input type="email" value="<?= htmlspecialchars($user['email']) ?>" disabled style="padding-left: 36px;">
-                <span style="position: absolute; left: 12px; color: #64748b; font-size: 14px;">🔒</span>
+            <label for="alertEmail">Alert Recipient Address</label>
+            <div style="position: relative; display: flex; align-items: center; gap: 12px;">
+                <div style="position: relative; flex: 1;">
+                    <input type="email" id="alertEmail" name="alert_email" value="<?= htmlspecialchars($user['alert_email'] ?? $user['email']) ?>" readonly style="padding-left: 36px; width: 100%;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 14px;">🔒</span>
+                </div>
+                <button type="button" id="editEmailButton" class="secondary">Edit</button>
             </div>
-            <p class="form-note">Alerts are bound to your primary login account email address and cannot be changed here.</p>
+            <p class="form-note">This alert recipient is separate from your login email. If left blank, alerts will fall back to your account email.</p>
         </div>
 
         <div class="form-actions">
-            <button type="submit" class="primary">Save Changes</button>
+            <button type="submit" id="saveChangesButton" class="primary" style="display: none;">Save Changes</button>
+            <noscript><style>#saveChangesButton{display:inline-block !important;}</style></noscript>
         </div>
     </form>
 
@@ -73,6 +94,11 @@ require 'includes/header.php';
 </div>
 
 <script>
+const alertEmailInput = document.getElementById('alertEmail');
+const editEmailButton = document.getElementById('editEmailButton');
+const saveChangesButton = document.getElementById('saveChangesButton');
+const alertsToggle = document.getElementById('alertsToggle');
+
 function updateToggleLabel(checkbox) {
     const label = document.getElementById('toggleStatusText');
     if (checkbox.checked) {
@@ -80,7 +106,28 @@ function updateToggleLabel(checkbox) {
     } else {
         label.innerHTML = '<span style="color: #64748b;">Disabled</span>';
     }
+    showSaveButton();
 }
+
+function showSaveButton() {
+    saveChangesButton.style.display = 'inline-block';
+}
+
+function enableEmailEditing() {
+    alertEmailInput.readOnly = false;
+    alertEmailInput.focus();
+    editEmailButton.style.display = 'none';
+    showSaveButton();
+}
+
+editEmailButton.addEventListener('click', function (event) {
+    event.preventDefault();
+    enableEmailEditing();
+});
+
+alertsToggle.addEventListener('change', function () {
+    updateToggleLabel(alertsToggle);
+});
 </script>
 
 <?php require 'includes/footer.php'; ?>
