@@ -39,6 +39,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <math.h>
 
 // ============================================================
 // LOCATION MODULE CONFIG (GPS primary, WiFi fingerprint fallback)
@@ -97,6 +98,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define MIN_SIGHTINGS        5      // must be seen at least this many times too
 #define FINDMY_PERSISTENCE_MS (7UL * 60UL * 1000UL)  // shorter threshold - highest-risk category
 #define FINDMY_MIN_SIGHTINGS  3
+// GPS/location jitter threshold (meters) - small GPS noise should NOT
+// be treated as a new distinct location. 30 meters is a reasonable
+// starting point for urban/outdoor environments; adjust if you need
+// higher/lower sensitivity. Keep configurable rather than hardcoding
+#define LOCATION_DISTANCE_THRESHOLD_METERS 30.0
+
+// RSSI exponential moving average smoothing factor (0-1). Higher alpha
+// reacts faster, lower alpha smooths more. 0.3 is a balanced default.
+#define RSSI_EMA_ALPHA 0.3
 
 // ============================================================
 // DATA STRUCTURES
@@ -123,6 +133,20 @@ struct TrackedDevice {
   unsigned long firstSeen;   // timestamp (ms since boot) of first sighting
   unsigned long lastSeen;    // timestamp (ms since boot) of most recent sighting
   bool     flagged;          // has this device been marked suspicious?
+  // Improved identity/fingerprint: not used as the primary key (we still
+  // index devices by MAC to remain compatible with whitelist behavior),
+  // but store a fingerprint composed of stable advertisement signals
+  // (name + short manufacturer-data + services) to help later correlation
+  // across randomized MAC addresses.
+  String   fingerprint;
+  // RSSI EMA/variance tracking for a responsive but stable proximity
+  // signal (separate from raw sightingCount and rssiSum).
+  float    rssiEMA;
+  float    rssiVar;
+  int      rssiEmaCount;
+  // Last known GPS lat/lng when using a GPS fix; NaN if not available.
+  double   lastLat;
+  double   lastLng;
 };
 
 TrackedDevice tracked[MAX_TRACKED];
@@ -335,6 +359,12 @@ int findOrCreate(const String &mac) {
     tracked[freeSlot].intervalSum = 0;
     tracked[freeSlot].intervalCount = 0;
     tracked[freeSlot].rssiSqSum = 0;
+    tracked[freeSlot].fingerprint = "";
+    tracked[freeSlot].rssiEMA = 0.0;
+    tracked[freeSlot].rssiVar = 0.0;
+    tracked[freeSlot].rssiEmaCount = 0;
+    tracked[freeSlot].lastLat = NAN;
+    tracked[freeSlot].lastLng = NAN;
   }
   return freeSlot; // -1 if table full
 }
@@ -352,16 +382,60 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     if (idx == -1) return; // table full, skip (rare with 30 slots)
 
     TrackedDevice &t = tracked[idx];
-    t.lastRSSI = dev->getRSSI();
-    t.rssiSum += t.lastRSSI;
+    int sampleRSSI = dev->getRSSI();
+    t.lastRSSI = sampleRSSI;
+    t.rssiSum += sampleRSSI;
+    // Update RSSI EMA and variance in a numerically stable incremental way
+    if (t.rssiEmaCount == 0) {
+      t.rssiEMA = sampleRSSI;
+      t.rssiVar = 0.0;
+      t.rssiEmaCount = 1;
+    } else {
+      float prevEma = t.rssiEMA;
+      t.rssiEMA = RSSI_EMA_ALPHA * sampleRSSI + (1 - RSSI_EMA_ALPHA) * t.rssiEMA;
+      // Welford-like online variance using EMA as the central tendency
+      float delta = sampleRSSI - prevEma;
+      t.rssiVar = (1 - RSSI_EMA_ALPHA) * (t.rssiVar + RSSI_EMA_ALPHA * delta * delta);
+      t.rssiEmaCount++;
+    }
     t.sightingCount++;
     t.lastSeen = millis();
 
     // Location diversity tracking - if this device is seen at a DIFFERENT
-    // location than where it was last seen, that's a strong stalking signal
+    // location than where it was last seen, that's a strong stalking signal.
+    // We must ignore small GPS jitter: only count as a new distinct location
+    // if the location fingerprint meaningfully changed. If we have GPS fixes
+    // for both the previous and current locations, compute distance.
+    bool locationChanged = false;
     if (t.lastLocationID != "" && t.lastLocationID != currentLocationID) {
-      t.distinctLocationCount++;
+      // If both lastLat/lastLng are valid and we're using GPSFix now,
+      // compute haversine distance and threshold it.
+      if (usingGPSFix && !isnan(t.lastLat) && !isnan(t.lastLng)) {
+        // Parse currentLocationID if it is a GPS:... string
+        if (currentLocationID.startsWith("GPS:")) {
+          double curLat = 0, curLng = 0;
+          // format "GPS:lat,lng"
+          int colon = currentLocationID.indexOf(':');
+          int comma = currentLocationID.indexOf(',');
+          if (colon >= 0 && comma > colon) {
+            curLat = currentLocationID.substring(colon + 1, comma).toFloat();
+            curLng = currentLocationID.substring(comma + 1).toFloat();
+            double dist = distanceMeters(t.lastLat, t.lastLng, curLat, curLng);
+            if (dist >= LOCATION_DISTANCE_THRESHOLD_METERS) locationChanged = true;
+          } else {
+            // fallback: treat as changed when string differs
+            locationChanged = true;
+          }
+        } else {
+          // current is non-GPS fingerprint and last was GPS; be conservative
+          locationChanged = true;
+        }
+      } else {
+        // cannot compute precise distance - fall back to string comparison
+        locationChanged = true;
+      }
     }
+    if (locationChanged) t.distinctLocationCount++;
     t.lastLocationID = currentLocationID;
 
     // Behavioral fingerprint: track interval between sightings + RSSI variance.
@@ -389,6 +463,33 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
       t.vendor = lookupVendor(mac);
       t.deviceType = classifyDeviceType(dev, name);
       t.isAppleFindMy = isAppleFindMyDevice(dev);
+      // Build a simple fingerprint from stable advertisement fields.
+      String fp = "";
+      if (name != "") fp += "N:" + name + ";";
+      if (dev->haveManufacturerData()) {
+        std::string md = dev->getManufacturerData();
+        // include first 6 bytes hex of manufacturer data as short signature
+        for (int i = 0; i < (int)md.size() && i < 6; i++) {
+          char buf[4];
+          snprintf(buf, sizeof(buf), "%02X", (uint8_t)md[i]);
+          fp += buf;
+        }
+        fp += ";";
+      }
+      if (dev->haveServiceUUID()) {
+        // include the first service UUID's short form
+        NimBLEUUID su = dev->getServiceUUID();
+        fp += "S:" + String(su.toString().c_str()) + ";";
+      }
+      t.fingerprint = fp;
+      // Initialize last known coords if we have a GPS fix
+      if (usingGPSFix && gps.location.isValid()) {
+        t.lastLat = gps.location.lat();
+        t.lastLng = gps.location.lng();
+      } else {
+        t.lastLat = NAN;
+        t.lastLng = NAN;
+      }
       if (t.isAppleFindMy) {
         t.vendor = "Apple";
         t.deviceType = "Find My Tracker (AirTag-class)";
@@ -419,15 +520,19 @@ void triggerAlert(const TrackedDevice &t) {
 
 // ---------- Whitelist current top-suspicious device ----------
 void whitelistTopSuspicious() {
+  // Prefer whitelisting the device currently displayed to the user (alert)
   int bestIdx = -1;
-  unsigned long longestDuration = 0;
-
-  for (int i = 0; i < MAX_TRACKED; i++) {
-    if (tracked[i].used) {
-      unsigned long dur = tracked[i].lastSeen - tracked[i].firstSeen;
-      if (dur > longestDuration) {
-        longestDuration = dur;
-        bestIdx = i;
+  if (alertDeviceIndex != -1 && alertDeviceIndex < MAX_TRACKED && tracked[alertDeviceIndex].used) {
+    bestIdx = alertDeviceIndex;
+  } else {
+    unsigned long longestDuration = 0;
+    for (int i = 0; i < MAX_TRACKED; i++) {
+      if (tracked[i].used) {
+        unsigned long dur = tracked[i].lastSeen - tracked[i].firstSeen;
+        if (dur > longestDuration) {
+          longestDuration = dur;
+          bestIdx = i;
+        }
       }
     }
   }
@@ -437,10 +542,13 @@ void whitelistTopSuspicious() {
     return;
   }
 
-  if (whitelistCount < MAX_WHITELIST) {
-    whitelist[whitelistCount++] = tracked[bestIdx].mac;
+  String macToAdd = tracked[bestIdx].mac;
+  if (isWhitelisted(macToAdd)) {
+    Serial.print("[WHITELIST] Already whitelisted: "); Serial.println(macToAdd);
+  } else if (whitelistCount < MAX_WHITELIST) {
+    whitelist[whitelistCount++] = macToAdd;
     Serial.print("[WHITELIST] Added: ");
-    Serial.println(tracked[bestIdx].mac);
+    Serial.println(macToAdd);
     sendEventToBackend(tracked[bestIdx], "whitelisted");
     saveWhitelistToFlash();
     tracked[bestIdx].used = false; // clear its tracking slot
@@ -555,10 +663,24 @@ void printTable() {
 // different hash. This doesn't give real coordinates in fallback mode, but
 // it reliably answers the question that actually matters for detecting
 // stalking: "has this device followed me to more than one place?"
-String getCurrentLocationID() {
+String getCurrentLocationID(bool allowBlocking = false) {
   // --- Try GPS first ---
-  unsigned long start = millis();
-  while (millis() - start < GPS_FIX_TIMEOUT_MS) {
+  if (allowBlocking) {
+    unsigned long start = millis();
+    while (millis() - start < GPS_FIX_TIMEOUT_MS) {
+      while (gpsSerial.available() > 0) {
+        gps.encode(gpsSerial.read());
+      }
+      if (gps.location.isValid() && gps.location.isUpdated()) {
+        usingGPSFix = true;
+        char buf[40];
+        snprintf(buf, sizeof(buf), "GPS:%.5f,%.5f", gps.location.lat(), gps.location.lng());
+        return String(buf);
+      }
+    }
+  } else {
+    // Non-blocking: process any available GPS bytes briefly and return
+    // the previous location if no new valid fix is available.
     while (gpsSerial.available() > 0) {
       gps.encode(gpsSerial.read());
     }
@@ -568,20 +690,14 @@ String getCurrentLocationID() {
       snprintf(buf, sizeof(buf), "GPS:%.5f,%.5f", gps.location.lat(), gps.location.lng());
       return String(buf);
     }
+    // No new GPS fix available; keep previous location (avoid blocking)
+    return currentLocationID.length() ? currentLocationID : String("UNKNOWN_LOCATION");
   }
 
-  // --- No GPS fix - fall back to WiFi AP fingerprint ---
+  // --- No GPS fix (blocking path) - fall back to WiFi AP fingerprint ---
   usingGPSFix = false;
   int n = WiFi.scanNetworks();
   if (n <= 0) return "UNKNOWN_LOCATION";
-
-  // Collect BSSIDs, sort them so the same set of APs always hashes the same
-  // way regardless of scan order
-  String bssidList[20];
-  int count = min(n, 20);
-  for (int i = 0; i < count; i++) {
-    bssidList[i] = WiFi.BSSIDstr(i);
-  }
   // simple bubble sort - fine for <=20 items
   for (int i = 0; i < count - 1; i++) {
     for (int j = 0; j < count - i - 1; j++) {
@@ -602,6 +718,17 @@ String getCurrentLocationID() {
     hash = ((hash << 5) + hash) + combined[i];
   }
   return "WIFI:" + String(hash);
+}
+
+// Calculate approximate distance (meters) between two lat/lon points
+// using the haversine formula. Inputs in decimal degrees.
+double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+  const double R = 6371000.0; // Earth radius in meters
+  double dLat = (lat2 - lat1) * M_PI / 180.0;
+  double dLon = (lon2 - lon1) * M_PI / 180.0;
+  double a = sin(dLat/2) * sin(dLat/2) + cos(lat1 * M_PI / 180.0) * cos(lat2 * M_PI / 180.0) * sin(dLon/2) * sin(dLon/2);
+  double c = 2 * atan2(sqrt(a), sqrt(1-a));
+  return R * c;
 }
 
 
@@ -787,19 +914,28 @@ void syncConfigFromServer() {
     // Merge whitelist entries added from the website - this is what makes
     // whitelist.php's web-add feature actually take effect on the device.
     JsonArray wlArray = respDoc["whitelist"].as<JsonArray>();
-    bool addedAny = false;
+    // SERVER-AUTHORITATIVE: replace local whitelist with server-provided
+    // list (removing entries that no longer exist on the server). This
+    // ensures the website is the single source of truth for centrally
+    // managed trusted devices. We avoid duplicates and enforce max size.
+    int newCount = 0;
+    String newList[MAX_WHITELIST];
     for (JsonVariant v : wlArray) {
+      if (newCount >= MAX_WHITELIST) break;
       String mac = v.as<String>();
       mac.toUpperCase();
-      if (!isWhitelisted(mac) && whitelistCount < MAX_WHITELIST) {
-        whitelist[whitelistCount++] = mac;
-        addedAny = true;
+      // Avoid duplicates in server list
+      bool dup = false;
+      for (int j = 0; j < newCount; j++) if (newList[j] == mac) { dup = true; break; }
+      if (!dup) {
+        newList[newCount++] = mac;
       }
     }
-    if (addedAny) {
-      saveWhitelistToFlash();
-      Serial.println("Whitelist synced from website.");
-    }
+    // Replace local whitelist with server list
+    whitelistCount = newCount;
+    for (int i = 0; i < whitelistCount; i++) whitelist[i] = newList[i];
+    saveWhitelistToFlash();
+    Serial.print("Whitelist replaced from server (count="); Serial.print(whitelistCount); Serial.println(")");
   }
   http.end();
 }
@@ -983,7 +1119,7 @@ void setup() {
   delay(1500);
   connectWiFi();
   gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-  currentLocationID = getCurrentLocationID();
+  currentLocationID = getCurrentLocationID(true); // allow blocking initial fix/fingerprint
   if (!wifiConnected) renderLocalOnlyNotice();
 
   loadWhitelistFromFlash();
@@ -1007,7 +1143,7 @@ void loop() {
     syncConfigFromServer(); // check for backup-network changes roughly every ~60 scan cycles
   }
   if (locationRefreshCounter++ % 10 == 0) {
-    currentLocationID = getCurrentLocationID(); // still blocks up to GPS_FIX_TIMEOUT_MS - see note below
+    currentLocationID = getCurrentLocationID(); // non-blocking: updates if GPS bytes available
   }
 
   // Run one scan cycle
@@ -1025,10 +1161,9 @@ void loop() {
 // using millis() instead of a blocking while() loop waiting for release.
 // This keeps BLE scanning/OLED updates responsive even during a long press,
 // unlike the earlier version which froze the whole loop until release.
-// NOTE: getCurrentLocationID() above still blocks up to GPS_FIX_TIMEOUT_MS
-// (8s) during its periodic refresh - a full async rewrite of the GPS wait
-// would need a proper state machine (future enhancement); this fix at least
-// removes the OTHER major blocking point (the button).
+// NOTE: getCurrentLocationID() is non-blocking during runtime (setup uses
+// a blocking call once). A full async GPS state machine could be added
+// later if finer control is required.
 void handleButtonNonBlocking() {
   static bool wasPressed = false;
   static unsigned long pressStartTime = 0;
