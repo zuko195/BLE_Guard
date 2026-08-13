@@ -51,6 +51,7 @@ HardwareSerial gpsSerial(2);
 TinyGPSPlus gps;
 String currentLocationID = "";
 bool usingGPSFix = false;
+bool wifiScanInProgress = false;
 
 #include <WiFiManager.h>
 
@@ -385,8 +386,8 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     int sampleRSSI = dev->getRSSI();
     t.lastRSSI = sampleRSSI;
     t.rssiSum += sampleRSSI;
-    // Update RSSI EMA and variance in a numerically stable incremental way
-    if (t.rssiEmaCount == 0) {
+    // Update RSSI EMA and variance in a numerically stable incremental way.
+    if (t.rssiEmaCount == 0 || !isfinite(t.rssiEMA) || !isfinite(t.rssiVar) || t.rssiVar < 0.0f) {
       t.rssiEMA = sampleRSSI;
       t.rssiVar = 0.0;
       t.rssiEmaCount = 1;
@@ -397,6 +398,7 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
       float delta = sampleRSSI - prevEma;
       t.rssiVar = (1 - RSSI_EMA_ALPHA) * (t.rssiVar + RSSI_EMA_ALPHA * delta * delta);
       t.rssiEmaCount++;
+      if (!isfinite(t.rssiVar) || t.rssiVar < 0.0f) t.rssiVar = 0.0f;
     }
     t.sightingCount++;
     t.lastSeen = millis();
@@ -408,28 +410,13 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     // for both the previous and current locations, compute distance.
     bool locationChanged = false;
     if (t.lastLocationID != "" && t.lastLocationID != currentLocationID) {
-      // If both lastLat/lastLng are valid and we're using GPSFix now,
-      // compute haversine distance and threshold it.
-      if (usingGPSFix && !isnan(t.lastLat) && !isnan(t.lastLng)) {
-        // Parse currentLocationID if it is a GPS:... string
-        if (currentLocationID.startsWith("GPS:")) {
-          double curLat = 0, curLng = 0;
-          // format "GPS:lat,lng"
-          int colon = currentLocationID.indexOf(':');
-          int comma = currentLocationID.indexOf(',');
-          if (colon >= 0 && comma > colon) {
-            curLat = currentLocationID.substring(colon + 1, comma).toFloat();
-            curLng = currentLocationID.substring(comma + 1).toFloat();
-            double dist = distanceMeters(t.lastLat, t.lastLng, curLat, curLng);
-            if (dist >= LOCATION_DISTANCE_THRESHOLD_METERS) locationChanged = true;
-          } else {
-            // fallback: treat as changed when string differs
-            locationChanged = true;
-          }
-        } else {
-          // current is non-GPS fingerprint and last was GPS; be conservative
-          locationChanged = true;
-        }
+      // If both the prior and current coordinates are valid GPS values,
+      // compute haversine distance and apply the jitter threshold.
+      double curLat = NAN, curLng = NAN;
+      bool currentGPSValid = parseGPSLocationID(currentLocationID, curLat, curLng);
+      if (currentGPSValid && !isnan(t.lastLat) && !isnan(t.lastLng)) {
+        double dist = distanceMeters(t.lastLat, t.lastLng, curLat, curLng);
+        if (dist >= LOCATION_DISTANCE_THRESHOLD_METERS) locationChanged = true;
       } else {
         // cannot compute precise distance - fall back to string comparison
         locationChanged = true;
@@ -437,6 +424,14 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     }
     if (locationChanged) t.distinctLocationCount++;
     t.lastLocationID = currentLocationID;
+    // Update only after comparison so the distance always measures from the
+    // device's previous known GPS location. Never replace valid coordinates
+    // with NaN when the current location is a WiFi fingerprint.
+    double currentLat = NAN, currentLng = NAN;
+    if (parseGPSLocationID(currentLocationID, currentLat, currentLng)) {
+      t.lastLat = currentLat;
+      t.lastLng = currentLng;
+    }
 
     // Behavioral fingerprint: track interval between sightings + RSSI variance.
     // Very regular intervals suggest a purpose-built tracker (fixed advertising
@@ -463,7 +458,9 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
       t.vendor = lookupVendor(mac);
       t.deviceType = classifyDeviceType(dev, name);
       t.isAppleFindMy = isAppleFindMyDevice(dev);
-      // Build a simple fingerprint from stable advertisement fields.
+      // MAC remains the primary tracked-device key. This advertisement
+      // fingerprint is auxiliary evidence only: it cannot safely merge
+      // randomized MAC addresses, though future correlation may use it.
       String fp = "";
       if (name != "") fp += "N:" + name + ";";
       if (dev->haveManufacturerData()) {
@@ -482,13 +479,11 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         fp += "S:" + String(su.toString().c_str()) + ";";
       }
       t.fingerprint = fp;
-      // Initialize last known coords if we have a GPS fix
-      if (usingGPSFix && gps.location.isValid()) {
-        t.lastLat = gps.location.lat();
-        t.lastLng = gps.location.lng();
-      } else {
-        t.lastLat = NAN;
-        t.lastLng = NAN;
+      // Initialize coordinates only from the current valid GPS location.
+      double initialLat = NAN, initialLng = NAN;
+      if (parseGPSLocationID(currentLocationID, initialLat, initialLng)) {
+        t.lastLat = initialLat;
+        t.lastLng = initialLng;
       }
       if (t.isAppleFindMy) {
         t.vendor = "Apple";
@@ -656,13 +651,44 @@ void printTable() {
 // HYBRID LOCATION MODULE (GPS primary, WiFi fingerprint fallback)
 // ============================================================
 
-// Tries GPS first (real lat/long, best outdoors). If no fix within the
-// timeout (common indoors, where GPS can't see sky), falls back to hashing
-// the set of visible WiFi access points into a "location fingerprint" -
-// same physical spot = same nearby APs = same hash, different building =
-// different hash. This doesn't give real coordinates in fallback mode, but
-// it reliably answers the question that actually matters for detecting
-// stalking: "has this device followed me to more than one place?"
+bool parseGPSLocationID(const String &locationID, double &lat, double &lng) {
+  if (!locationID.startsWith("GPS:")) return false;
+  int comma = locationID.indexOf(',');
+  if (comma <= 4 || comma >= locationID.length() - 1) return false;
+  lat = locationID.substring(4, comma).toDouble();
+  lng = locationID.substring(comma + 1).toDouble();
+  return isfinite(lat) && isfinite(lng) && lat >= -90.0 && lat <= 90.0 && lng >= -180.0 && lng <= 180.0;
+}
+
+// Builds the existing location fingerprint from a completed WiFi scan.
+// The BSSID list and every access are bounded to the fixed 20-entry array.
+String wifiFingerprintFromScan(int networkCount) {
+  if (networkCount <= 0) return "";
+  const int MAX_FINGERPRINT_BSSIDS = 20;
+  String bssidList[MAX_FINGERPRINT_BSSIDS];
+  int count = min(networkCount, MAX_FINGERPRINT_BSSIDS);
+  for (int i = 0; i < count; i++) bssidList[i] = WiFi.BSSIDstr(i);
+
+  for (int i = 0; i < count - 1; i++) {
+    for (int j = 0; j < count - i - 1; j++) {
+      if (bssidList[j] > bssidList[j + 1]) {
+        String tmp = bssidList[j];
+        bssidList[j] = bssidList[j + 1];
+        bssidList[j + 1] = tmp;
+      }
+    }
+  }
+
+  String combined = "";
+  for (int i = 0; i < count; i++) combined += bssidList[i];
+  unsigned long hash = 5381;
+  for (int i = 0; i < combined.length(); i++) hash = ((hash << 5) + hash) + combined[i];
+  return "WIFI:" + String(hash);
+}
+
+// Tries GPS first (real lat/long, best outdoors). If no fix is available,
+// hashes visible WiFi APs into a location fingerprint. Runtime scans are
+// asynchronous so BLE scanning is never paused for a multi-second WiFi scan.
 String getCurrentLocationID(bool allowBlocking = false) {
   // --- Try GPS first ---
   if (allowBlocking) {
@@ -679,8 +705,8 @@ String getCurrentLocationID(bool allowBlocking = false) {
       }
     }
   } else {
-    // Non-blocking: process any available GPS bytes briefly and return
-    // the previous location if no new valid fix is available.
+    // Non-blocking: process available GPS bytes, then poll/start the WiFi
+    // scan state machine if no new fix arrived.
     while (gpsSerial.available() > 0) {
       gps.encode(gpsSerial.read());
     }
@@ -690,34 +716,40 @@ String getCurrentLocationID(bool allowBlocking = false) {
       snprintf(buf, sizeof(buf), "GPS:%.5f,%.5f", gps.location.lat(), gps.location.lng());
       return String(buf);
     }
-    // No new GPS fix available; keep previous location (avoid blocking)
+    usingGPSFix = false;
+    int scanResult = WiFi.scanComplete();
+    if (wifiScanInProgress && scanResult >= 0) {
+      wifiScanInProgress = false;
+      String fingerprint = wifiFingerprintFromScan(scanResult);
+      WiFi.scanDelete();
+      if (fingerprint.length()) return fingerprint;
+      Serial.println("WiFi fingerprint scan found no networks; retaining previous location.");
+    } else if (wifiScanInProgress && scanResult < -1) {
+      wifiScanInProgress = false;
+      WiFi.scanDelete();
+      Serial.println("WiFi fingerprint scan failed; retaining previous location.");
+    }
+
+    if (!wifiScanInProgress) {
+      // async=true starts the scan and show_hidden=true preserves the same
+      // complete AP-set intent as the original synchronous fallback.
+      WiFi.scanNetworks(true, true);
+      wifiScanInProgress = true;
+    }
     return currentLocationID.length() ? currentLocationID : String("UNKNOWN_LOCATION");
   }
 
   // --- No GPS fix (blocking path) - fall back to WiFi AP fingerprint ---
   usingGPSFix = false;
   int n = WiFi.scanNetworks();
-  if (n <= 0) return "UNKNOWN_LOCATION";
-  // simple bubble sort - fine for <=20 items
-  for (int i = 0; i < count - 1; i++) {
-    for (int j = 0; j < count - i - 1; j++) {
-      if (bssidList[j] > bssidList[j+1]) {
-        String tmp = bssidList[j];
-        bssidList[j] = bssidList[j+1];
-        bssidList[j+1] = tmp;
-      }
-    }
+  if (n <= 0) {
+    WiFi.scanDelete();
+    return "UNKNOWN_LOCATION";
   }
 
-  String combined = "";
-  for (int i = 0; i < count; i++) combined += bssidList[i];
-
-  // Simple hash (not cryptographic - just needs to be consistent, not secure)
-  unsigned long hash = 5381;
-  for (int i = 0; i < combined.length(); i++) {
-    hash = ((hash << 5) + hash) + combined[i];
-  }
-  return "WIFI:" + String(hash);
+  String fingerprint = wifiFingerprintFromScan(n);
+  WiFi.scanDelete();
+  return fingerprint.length() ? fingerprint : String("UNKNOWN_LOCATION");
 }
 
 // Calculate approximate distance (meters) between two lat/lon points
@@ -899,20 +931,35 @@ void syncConfigFromServer() {
       return;
     }
 
-    JsonArray networks = respDoc["networks"].as<JsonArray>();
-    int netCount = 0;
-    for (JsonObject net : networks) {
-      if (netCount >= MAX_BACKUP_NETWORKS) break;
-      backupNetworks[netCount].ssid = net["ssid"].as<String>();
-      backupNetworks[netCount].password = net["password"].as<String>();
-      netCount++;
+    if (!respDoc["success"].is<bool>() || !respDoc["success"].as<bool>()) {
+      Serial.println("Config sync response was not successful; keeping local configuration.");
+      http.end();
+      return;
     }
-    backupNetworkCount = netCount;
-    saveBackupNetworksToFlash();
-    Serial.print("Config synced - "); Serial.print(netCount); Serial.println(" backup network(s)");
+
+    if (respDoc["networks"].is<JsonArray>()) {
+      JsonArray networks = respDoc["networks"].as<JsonArray>();
+      int netCount = 0;
+      for (JsonObject net : networks) {
+        if (netCount >= MAX_BACKUP_NETWORKS) break;
+        backupNetworks[netCount].ssid = net["ssid"].as<String>();
+        backupNetworks[netCount].password = net["password"].as<String>();
+        netCount++;
+      }
+      backupNetworkCount = netCount;
+      saveBackupNetworksToFlash();
+      Serial.print("Config synced - "); Serial.print(netCount); Serial.println(" backup network(s)");
+    } else {
+      Serial.println("Config sync missing/malformed networks; keeping local backup networks.");
+    }
 
     // Merge whitelist entries added from the website - this is what makes
     // whitelist.php's web-add feature actually take effect on the device.
+    if (!respDoc["whitelist"].is<JsonArray>()) {
+      Serial.println("Config sync missing/malformed whitelist; keeping local whitelist.");
+      http.end();
+      return;
+    }
     JsonArray wlArray = respDoc["whitelist"].as<JsonArray>();
     // SERVER-AUTHORITATIVE: replace local whitelist with server-provided
     // list (removing entries that no longer exist on the server). This
@@ -922,8 +969,10 @@ void syncConfigFromServer() {
     String newList[MAX_WHITELIST];
     for (JsonVariant v : wlArray) {
       if (newCount >= MAX_WHITELIST) break;
+      if (!v.is<const char*>()) continue;
       String mac = v.as<String>();
       mac.toUpperCase();
+      if (mac.length() == 0) continue;
       // Avoid duplicates in server list
       bool dup = false;
       for (int j = 0; j < newCount; j++) if (newList[j] == mac) { dup = true; break; }
@@ -967,7 +1016,8 @@ void sendEventToBackend(const TrackedDevice &t, const String &status) {
   doc["distinct_location_count"] = t.distinctLocationCount;
   doc["threat_score"] = calculateThreatScore(t);
   doc["adv_interval_ms"] = t.intervalCount > 0 ? (t.intervalSum / t.intervalCount) : 0;
-  doc["rssi_variance"] = t.sightingCount > 0 ? (float)t.rssiSqSum / t.sightingCount : 0.0;
+  float rssiVariance = (isfinite(t.rssiVar) && t.rssiVar >= 0.0f) ? t.rssiVar : 0.0f;
+  doc["rssi_variance"] = rssiVariance;
   doc["status"] = status;
 
   String json;
