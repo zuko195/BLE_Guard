@@ -240,7 +240,7 @@ String lookupVendor(const String &mac) {
 // This is a best-effort GUESS, not a certainty - many devices don't share
 // enough information to classify confidently, and that's an expected and
 // honest limitation to mention in your report, not a bug to hide.
-String classifyDeviceType(NimBLEAdvertisedDevice* dev, const String &name) {
+String classifyDeviceType(const NimBLEAdvertisedDevice* dev, const String &name) {
   String lname = name;
   lname.toLowerCase();
 
@@ -296,7 +296,7 @@ String classifyDeviceType(NimBLEAdvertisedDevice* dev, const String &name) {
 // Apple can't randomize the payload without breaking the Find My protocol
 // itself. This is why we check manufacturer data separately from MAC-based
 // vendor lookup - they catch different things.
-bool isAppleFindMyDevice(NimBLEAdvertisedDevice* dev) {
+bool isAppleFindMyDevice(const NimBLEAdvertisedDevice* dev) {
   if (!dev->haveManufacturerData()) return false;
 
   std::string mfgData = dev->getManufacturerData();
@@ -371,8 +371,8 @@ int findOrCreate(const String &mac) {
 }
 
 // ---------- BLE Scan Callback ----------
-class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-  void onResult(NimBLEAdvertisedDevice* dev) override {
+class ScanCallbacks : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice* dev) override {
     String mac = dev->getAddress().toString().c_str();
     mac.toUpperCase(); // normalize case - website stores whitelist MACs uppercase
                         // too, and NimBLE returns lowercase by default; without
@@ -1177,7 +1177,7 @@ void setup() {
 
   NimBLEDevice::init("");
   pScan = NimBLEDevice::getScan();
-  pScan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
+  pScan->setScanCallbacks(new ScanCallbacks(), true);
   pScan->setActiveScan(true);
   pScan->setInterval(100);
   pScan->setWindow(99);
@@ -1197,7 +1197,7 @@ void loop() {
   }
 
   // Run one scan cycle
-  pScan->start(SCAN_TIME_SEC, false);
+  pScan->getResults(SCAN_TIME_SEC * 1000, false);
   pScan->clearResults();
 
   evaluateSuspicion();
