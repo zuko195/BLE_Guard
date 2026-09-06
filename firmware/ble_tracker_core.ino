@@ -1303,23 +1303,33 @@ void setup() {
 }
 
 void loop() {
+
   static int locationRefreshCounter = 0;
   static int configSyncCounter = 0;
+
   if (configSyncCounter++ % 60 == 0) {
-    syncConfigFromServer(); // check for backup-network changes roughly every ~60 scan cycles
-  }
-  if (locationRefreshCounter++ % 10 == 0) {
-    currentLocationID = getCurrentLocationID(); // non-blocking: updates if GPS bytes available
+    syncConfigFromServer();
   }
 
-  // Run one scan cycle
+  if (locationRefreshCounter++ % 10 == 0) {
+    currentLocationID = getCurrentLocationID();
+  }
+
+  // Check button BEFORE starting BLE scan
+  handleButtonNonBlocking();
+
+  // Run one BLE scan cycle
   pScan->getResults(SCAN_TIME_SEC * 1000, false);
   pScan->clearResults();
+
+  // Check button AGAIN immediately after scan
+  handleButtonNonBlocking();
 
   evaluateSuspicion();
   printTable();
   renderCurrentScreen();
 
+  // Check button once more after display update
   handleButtonNonBlocking();
 }
 
@@ -1330,37 +1340,54 @@ void loop() {
 // NOTE: getCurrentLocationID() is non-blocking during runtime (setup uses
 // a blocking call once). A full async GPS state machine could be added
 // later if finer control is required.
-void handleButtonNonBlocking() {
-  static bool wasPressed = false;
+
+  void handleButtonNonBlocking() {
+  static bool lastButtonState = HIGH;
+  static bool buttonPressed = false;
   static unsigned long pressStartTime = 0;
-  static bool longPressFired = false;
 
-  bool isPressed = (digitalRead(BUTTON_PIN) == LOW);
+  bool currentButtonState = digitalRead(BUTTON_PIN);
 
-  if (isPressed && !wasPressed) {
-    // Button just went down
+  // Button was just pressed
+  if (lastButtonState == HIGH && currentButtonState == LOW) {
+    buttonPressed = true;
     pressStartTime = millis();
-    longPressFired = false;
-  } else if (isPressed && wasPressed) {
-    // Still held - check if we've crossed the long-press threshold
-    if (!longPressFired && (millis() - pressStartTime) >= LONG_PRESS_MS) {
-      whitelistTopSuspicious();
-      longPressFired = true; // fire once per hold, not repeatedly
-    }
-  } else if (!isPressed && wasPressed) {
-    // Button just released
-    unsigned long pressDuration = millis() - pressStartTime;
-    if (!longPressFired && pressDuration < LONG_PRESS_MS) {
-      // Short press = dismiss alert (if showing one) or toggle home screens
-      if (currentScreen == SCR_ALERT) {
-        currentScreen = previousScreen;
-        alertDeviceIndex = -1;
-      } else {
-        currentScreen = (currentScreen == SCR_CATEGORY) ? SCR_IDLE : SCR_CATEGORY;
+  }
+
+  // Button is being held
+  if (buttonPressed && currentButtonState == LOW) {
+    unsigned long heldTime = millis() - pressStartTime;
+
+    // Long press
+    if (heldTime >= LONG_PRESS_MS) {
+      buttonPressed = false;
+
+      if (alertDeviceIndex >= 0 &&
+          alertDeviceIndex < MAX_TRACKED &&
+          tracked[alertDeviceIndex].used) {
+
+        whitelistTopSuspicious();
       }
-      renderCurrentScreen();
     }
   }
 
-  wasPressed = isPressed;
+  // Button was released
+  if (lastButtonState == LOW && currentButtonState == HIGH) {
+    if (buttonPressed) {
+      unsigned long pressDuration = millis() - pressStartTime;
+
+      // Short press
+      if (pressDuration < LONG_PRESS_MS) {
+        if (currentScreen == SCR_CATEGORY) {
+          currentScreen = SCR_IDLE;
+        } else if (currentScreen == SCR_IDLE) {
+          currentScreen = SCR_CATEGORY;
+        }
+      }
+
+      buttonPressed = false;
+    }
+  }
+
+  lastButtonState = currentButtonState;
 }
