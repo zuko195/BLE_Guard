@@ -29,6 +29,7 @@
   full build history and design decisions behind each one.
 */
 
+#include <WiFiClientSecure.h>
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -63,8 +64,14 @@ bool wifiScanInProgress = false;
 // Backup networks are managed from the website (device_settings.php) and
 // synced down periodically via syncConfigFromServer().
 String savedApiKey = "";
-String savedServerHost = ""; // e.g. "yourhost.com" - just the host, not full URL
+String savedServerHost = ""; // kept for compatibility with older saved configuration
 bool wifiConnected = false;
+
+// Public HTTPS endpoint for the BLE Guard backend.
+// This is the current Cloudflare Quick Tunnel URL.
+// If the Quick Tunnel is restarted and the URL changes, update this value
+// and upload the firmware again.
+const char* BACKEND_BASE_URL = "https://travels-enrolled-arrives-value.trycloudflare.com";
 #define MAX_BACKUP_NETWORKS 5
 #define RESET_HOLD_MS 3000  // hold button 3+ sec during boot to reset config
 struct BackupNetwork { String ssid; String password; };
@@ -95,7 +102,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SCAN_TIME_SEC        5      // length of each scan cycle, in seconds
 #define MAX_TRACKED          30     // max unique devices tracked at once
 #define MAX_WHITELIST        15
-#define PERSISTENCE_MS       (15UL * 60UL * 1000UL)  // 15 minutes -> suspicious threshold
+#define PERSISTENCE_MS       (30UL * 1000UL)  // 15 minutes -> suspicious threshold
 #define MIN_SIGHTINGS        5      // must be seen at least this many times too
 #define FINDMY_PERSISTENCE_MS (7UL * 60UL * 1000UL)  // shorter threshold - highest-risk category
 #define FINDMY_MIN_SIGHTINGS  3
@@ -819,8 +826,9 @@ void checkForConfigReset() {
 }
 
 // First-time (or post-reset) setup via captive portal. WiFiManager handles
-// the hotspot + connection UI natively; we add two custom fields for the
-// API key and server host, which WiFiManager doesn't know about by default.
+// the hotspot + connection UI natively. The API key is still collected here.
+// The old server-host field is kept only for backward compatibility with
+// existing saved configuration; backend requests now use BACKEND_BASE_URL.
 // Strips "http://"/"https://" prefix and any trailing slash from a
 // user-entered host, so "https://example.com/" and "example.com" both end
 // up stored the same way - without this, the "https://" + savedServerHost
@@ -865,7 +873,7 @@ void runSetupPortal() {
 void connectWiFi() {
   loadConfigFromFlash();
 
-  if (savedApiKey == "" || savedServerHost == "") {
+  if (savedApiKey == "") {
     // No config saved yet - this is a first boot or post-reset state
     runSetupPortal();
     return;
@@ -906,8 +914,20 @@ void connectWiFi() {
 void syncConfigFromServer() {
   if (!wifiConnected || savedApiKey == "") return;
 
+  WiFiClientSecure client;
+  client.setInsecure();  // Demo/testing mode: do not verify the server certificate.
+
   HTTPClient http;
-  http.begin("https://" + savedServerHost + "/get_config.php");
+  String url = String(BACKEND_BASE_URL) + "/get_config.php";
+
+  Serial.print("[BACKEND] Config URL: ");
+  Serial.println(url);
+
+  if (!http.begin(client, url)) {
+    Serial.println("[BACKEND] HTTPS initialization failed for config sync.");
+    return;
+  }
+
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument reqDoc;
@@ -917,16 +937,20 @@ void syncConfigFromServer() {
 
   int httpCode = http.POST(reqJson);
 
+  Serial.print("[BACKEND] Config HTTPS POST result: ");
+  Serial.println(httpCode);
+
   if (httpCode == 200) {
     String response = http.getString();
+    Serial.print("[BACKEND] Config response: ");
+    Serial.println(response);
+
     JsonDocument respDoc;
     DeserializationError err = deserializeJson(respDoc, response);
 
     if (err) {
-      // Malformed/unexpected response - log and skip rather than silently
-      // misparsing (the old manual indexOf() parsing had no way to detect
-      // this and would just fail quietly or grab wrong data)
-      Serial.print("Config sync JSON parse failed: "); Serial.println(err.c_str());
+      Serial.print("Config sync JSON parse failed: ");
+      Serial.println(err.c_str());
       http.end();
       return;
     }
@@ -948,46 +972,67 @@ void syncConfigFromServer() {
       }
       backupNetworkCount = netCount;
       saveBackupNetworksToFlash();
-      Serial.print("Config synced - "); Serial.print(netCount); Serial.println(" backup network(s)");
+      Serial.print("Config synced - ");
+      Serial.print(netCount);
+      Serial.println(" backup network(s)");
     } else {
       Serial.println("Config sync missing/malformed networks; keeping local backup networks.");
     }
 
-    // Merge whitelist entries added from the website - this is what makes
-    // whitelist.php's web-add feature actually take effect on the device.
+    // Server-authoritative whitelist: replace local whitelist with the
+    // server-provided list so website changes are reflected on the ESP32.
     if (!respDoc["whitelist"].is<JsonArray>()) {
       Serial.println("Config sync missing/malformed whitelist; keeping local whitelist.");
       http.end();
       return;
     }
+
     JsonArray wlArray = respDoc["whitelist"].as<JsonArray>();
-    // SERVER-AUTHORITATIVE: replace local whitelist with server-provided
-    // list (removing entries that no longer exist on the server). This
-    // ensures the website is the single source of truth for centrally
-    // managed trusted devices. We avoid duplicates and enforce max size.
     int newCount = 0;
     String newList[MAX_WHITELIST];
+
     for (JsonVariant v : wlArray) {
       if (newCount >= MAX_WHITELIST) break;
       if (!v.is<const char*>()) continue;
+
       String mac = v.as<String>();
       mac.toUpperCase();
       if (mac.length() == 0) continue;
-      // Avoid duplicates in server list
+
       bool dup = false;
-      for (int j = 0; j < newCount; j++) if (newList[j] == mac) { dup = true; break; }
+      for (int j = 0; j < newCount; j++) {
+        if (newList[j] == mac) {
+          dup = true;
+          break;
+        }
+      }
+
       if (!dup) {
         newList[newCount++] = mac;
       }
     }
-    // Replace local whitelist with server list
+
     whitelistCount = newCount;
-    for (int i = 0; i < whitelistCount; i++) whitelist[i] = newList[i];
+    for (int i = 0; i < whitelistCount; i++) {
+      whitelist[i] = newList[i];
+    }
     saveWhitelistToFlash();
-    Serial.print("Whitelist replaced from server (count="); Serial.print(whitelistCount); Serial.println(")");
+
+    Serial.print("Whitelist replaced from server (count=");
+    Serial.print(whitelistCount);
+    Serial.println(")");
+  } else if (httpCode > 0) {
+    Serial.print("[BACKEND] Config server returned HTTP ");
+    Serial.println(httpCode);
+    Serial.println(http.getString());
+  } else {
+    Serial.print("[BACKEND] Config HTTPS error: ");
+    Serial.println(http.errorToString(httpCode));
   }
+
   http.end();
 }
+
 
 // Sends one detection event to the backend as JSON, using ArduinoJson to
 // build it - handles escaping of quotes/backslashes/control characters
@@ -997,10 +1042,22 @@ void syncConfigFromServer() {
 // broadcast a name containing a literal quote character to break naive
 // hand-built JSON).
 void sendEventToBackend(const TrackedDevice &t, const String &status) {
-  if (!wifiConnected) return; // skip silently - local-only mode
+  if (!wifiConnected || savedApiKey == "") return;
+
+  WiFiClientSecure client;
+  client.setInsecure();  // Demo/testing mode: do not verify the server certificate.
 
   HTTPClient http;
-  http.begin("https://" + savedServerHost + "/api_log_event.php");
+  String url = String(BACKEND_BASE_URL) + "/api_log_event.php";
+
+  Serial.print("[BACKEND] Event URL: ");
+  Serial.println(url);
+
+  if (!http.begin(client, url)) {
+    Serial.println("[BACKEND] HTTPS initialization failed for event POST.");
+    return;
+  }
+
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument doc;
@@ -1024,9 +1081,21 @@ void sendEventToBackend(const TrackedDevice &t, const String &status) {
   serializeJson(doc, json);
 
   int httpCode = http.POST(json);
-  Serial.print("[BACKEND] POST result: "); Serial.println(httpCode);
+  Serial.print("[BACKEND] HTTPS POST result: ");
+  Serial.println(httpCode);
+
+  if (httpCode > 0) {
+    String response = http.getString();
+    Serial.print("[BACKEND] Server response: ");
+    Serial.println(response);
+  } else {
+    Serial.print("[BACKEND] HTTPS error: ");
+    Serial.println(http.errorToString(httpCode));
+  }
+
   http.end();
 }
+
 
 
 // ============================================================
@@ -1168,6 +1237,53 @@ void setup() {
   renderBoot();
   delay(1500);
   connectWiFi();
+
+  // Test the public HTTPS backend before starting the main BLE scan loop.
+  if (wifiConnected) {
+    WiFiClientSecure testClient;
+    testClient.setInsecure();  // Demo/testing mode.
+
+    HTTPClient testHttp;
+
+    Serial.println("===== BACKEND HTTPS CONNECTION TEST =====");
+    Serial.print("ESP32 IP: ");
+    Serial.println(WiFi.localIP());
+
+    String testURL = String(BACKEND_BASE_URL) + "/login.php";
+    Serial.print("Testing: ");
+    Serial.println(testURL);
+
+    if (testHttp.begin(testClient, testURL)) {
+      int testCode = testHttp.GET();
+
+      Serial.print("HTTPS GET result: ");
+      Serial.println(testCode);
+
+      if (testCode == 200) {
+        Serial.println("=====================================");
+        Serial.println("CLOUD BACKEND CONNECTION SUCCESS!");
+        Serial.println("BLE Guard website reachable.");
+        Serial.println("=====================================");
+      } else if (testCode > 0) {
+        Serial.print("Website reached, but HTTP status was ");
+        Serial.println(testCode);
+      } else {
+        Serial.print("HTTPS GET failed: ");
+        Serial.println(testHttp.errorToString(testCode));
+      }
+
+      testHttp.end();
+    } else {
+      Serial.println("HTTPS initialization FAILED!");
+    }
+
+    Serial.println("===== END BACKEND TEST =====");
+  } else {
+    Serial.println("===== BACKEND HTTPS CONNECTION TEST SKIPPED =====");
+    Serial.println("WiFi is not connected.");
+    Serial.println("===============================================");
+  }
+
   gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   currentLocationID = getCurrentLocationID(true); // allow blocking initial fix/fingerprint
   if (!wifiConnected) renderLocalOnlyNotice();
