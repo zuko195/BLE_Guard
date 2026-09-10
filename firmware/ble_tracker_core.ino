@@ -71,7 +71,7 @@ bool wifiConnected = false;
 // This is the current Cloudflare Quick Tunnel URL.
 // If the Quick Tunnel is restarted and the URL changes, update this value
 // and upload the firmware again.
-const char* BACKEND_BASE_URL = "https://travels-enrolled-arrives-value.trycloudflare.com";
+const char* BACKEND_BASE_URL = "https://emails-fever-assign-personnel.trycloudflare.com";
 #define MAX_BACKUP_NETWORKS 5
 #define RESET_HOLD_MS 3000  // hold button 3+ sec during boot to reset config
 struct BackupNetwork { String ssid; String password; };
@@ -196,6 +196,41 @@ ScreenState currentScreen = SCR_CATEGORY;   // home screen = Category Summary
 ScreenState previousScreen = SCR_CATEGORY;  // where to return after alert/whitelist
 int alertDeviceIndex = -1;                  // which tracked[] slot is being alerted
 #define LONG_PRESS_MS 800
+#define BUTTON_DEBOUNCE_MS 50
+
+// Runtime button events are captured by an interrupt so a press is not missed
+// while the ESP32 is busy inside a BLE scan. The ISR only records state;
+// all OLED, LED, whitelist, and screen work remains in the normal loop.
+volatile bool buttonShortPressPending = false;
+volatile bool buttonLongPressPending = false;
+volatile bool buttonIsDown = false;
+volatile unsigned long buttonPressStartMs = 0;
+volatile unsigned long buttonLastEdgeMs = 0;
+
+void IRAM_ATTR buttonISR() {
+  unsigned long now = millis();
+
+  // Basic hardware debounce. Ignore edges arriving too quickly after the
+  // previous edge, which filters normal switch contact bounce.
+  if ((now - buttonLastEdgeMs) < BUTTON_DEBOUNCE_MS) return;
+  buttonLastEdgeMs = now;
+
+  bool pressed = (digitalRead(BUTTON_PIN) == LOW);
+
+  if (pressed && !buttonIsDown) {
+    buttonIsDown = true;
+    buttonPressStartMs = now;
+  } else if (!pressed && buttonIsDown) {
+    buttonIsDown = false;
+    unsigned long duration = now - buttonPressStartMs;
+
+    if (duration >= LONG_PRESS_MS) {
+      buttonLongPressPending = true;
+    } else {
+      buttonShortPressPending = true;
+    }
+  }
+}
 
 // ============================================================
 // MODULE 4: DEVICE IDENTIFICATION HELPERS
@@ -800,29 +835,46 @@ void saveBackupNetworksToFlash() {
   prefs.end();
 }
 
-// Checks if the button is held at boot - if so, wipes all saved config and
-// restarts into setup mode. This is the "start over" gesture mentioned on
-// the WiFi Settings page.
+// Checks if the button is intentionally held at boot. A brief debounce
+// prevents switch bounce from being mistaken for a reset gesture.
+// This is only used during startup; normal runtime handling is interrupt-based.
 void checkForConfigReset() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  if (digitalRead(BUTTON_PIN) != LOW) return; // not held, nothing to do
 
+  // Normal startup: button is released.
+  if (digitalRead(BUTTON_PIN) != LOW) return;
+
+  // Require the LOW state to remain stable briefly before accepting it as
+  // an intentional boot reset gesture.
+  delay(BUTTON_DEBOUNCE_MS);
+  if (digitalRead(BUTTON_PIN) != LOW) return;
+
+  Serial.println("Button held at boot - keep holding for 3 seconds to reset config...");
   unsigned long start = millis();
+
   while (digitalRead(BUTTON_PIN) == LOW) {
-    // Blink red while held, so there's visual feedback even before OLED init
-    digitalWrite(RGB_RED_PIN, (millis() / 200) % 2);
-    if (millis() - start >= RESET_HOLD_MS) {
+    unsigned long elapsed = millis() - start;
+
+    // Blink red while the reset gesture is being held.
+    digitalWrite(RGB_RED_PIN, (elapsed / 200) % 2);
+
+    if (elapsed >= RESET_HOLD_MS) {
       Serial.println("Reset gesture detected - wiping saved config...");
       prefs.begin("bleguard", false);
-      prefs.clear(); // wipes API key, server host, backup networks, AND whitelist
+      prefs.clear(); // API key, server host, backup networks, and whitelist
       prefs.end();
+
       WiFiManager wm;
-      wm.resetSettings(); // wipes WiFiManager's own saved primary network
+      wm.resetSettings(); // Remove WiFiManager's saved Wi-Fi settings too
       delay(500);
       ESP.restart();
     }
+
     delay(10);
   }
+
+  // Released before 3 seconds: continue normal startup.
+  digitalWrite(RGB_RED_PIN, LOW);
 }
 
 // First-time (or post-reset) setup via captive portal. WiFiManager handles
@@ -1221,6 +1273,7 @@ void setup() {
   pinMode(RGB_BLUE_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   checkForConfigReset(); // hold button 3+ sec at boot to wipe config and re-enter setup mode
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, CHANGE);
 
   setLED(false, false, false); // start with LED off
 
@@ -1303,91 +1356,52 @@ void setup() {
 }
 
 void loop() {
-
   static int locationRefreshCounter = 0;
   static int configSyncCounter = 0;
-
   if (configSyncCounter++ % 60 == 0) {
-    syncConfigFromServer();
+    syncConfigFromServer(); // check for backup-network changes roughly every ~60 scan cycles
   }
-
   if (locationRefreshCounter++ % 10 == 0) {
-    currentLocationID = getCurrentLocationID();
+    currentLocationID = getCurrentLocationID(); // non-blocking: updates if GPS bytes available
   }
 
-  // Check button BEFORE starting BLE scan
-  handleButtonNonBlocking();
-
-  // Run one BLE scan cycle
+  // Run one scan cycle
   pScan->getResults(SCAN_TIME_SEC * 1000, false);
   pScan->clearResults();
-
-  // Check button AGAIN immediately after scan
-  handleButtonNonBlocking();
 
   evaluateSuspicion();
   printTable();
   renderCurrentScreen();
 
-  // Check button once more after display update
-  handleButtonNonBlocking();
+  handleButtonEvents();
 }
 
-// Non-blocking button handling: tracks press state across loop iterations
-// using millis() instead of a blocking while() loop waiting for release.
-// This keeps BLE scanning/OLED updates responsive even during a long press,
-// unlike the earlier version which froze the whole loop until release.
-// NOTE: getCurrentLocationID() is non-blocking during runtime (setup uses
-// a blocking call once). A full async GPS state machine could be added
-// later if finer control is required.
+// Process button events captured by the interrupt. This function runs in the
+// normal context, so it is safe to update OLED/LED state and call other modules.
+void handleButtonEvents() {
+  bool shortPress = false;
+  bool longPress = false;
 
-  void handleButtonNonBlocking() {
-  static bool lastButtonState = HIGH;
-  static bool buttonPressed = false;
-  static unsigned long pressStartTime = 0;
+  noInterrupts();
+  shortPress = buttonShortPressPending;
+  longPress = buttonLongPressPending;
+  buttonShortPressPending = false;
+  buttonLongPressPending = false;
+  interrupts();
 
-  bool currentButtonState = digitalRead(BUTTON_PIN);
-
-  // Button was just pressed
-  if (lastButtonState == HIGH && currentButtonState == LOW) {
-    buttonPressed = true;
-    pressStartTime = millis();
+  // Long press = whitelist the currently displayed/top suspicious device.
+  if (longPress) {
+    whitelistTopSuspicious();
   }
 
-  // Button is being held
-  if (buttonPressed && currentButtonState == LOW) {
-    unsigned long heldTime = millis() - pressStartTime;
-
-    // Long press
-    if (heldTime >= LONG_PRESS_MS) {
-      buttonPressed = false;
-
-      if (alertDeviceIndex >= 0 &&
-          alertDeviceIndex < MAX_TRACKED &&
-          tracked[alertDeviceIndex].used) {
-
-        whitelistTopSuspicious();
-      }
+  // Short press = dismiss an alert, otherwise toggle the two home screens.
+  if (shortPress) {
+    if (currentScreen == SCR_ALERT) {
+      currentScreen = previousScreen;
+      alertDeviceIndex = -1;
+    } else {
+      currentScreen = (currentScreen == SCR_CATEGORY) ? SCR_IDLE : SCR_CATEGORY;
     }
+    renderCurrentScreen();
   }
-
-  // Button was released
-  if (lastButtonState == LOW && currentButtonState == HIGH) {
-    if (buttonPressed) {
-      unsigned long pressDuration = millis() - pressStartTime;
-
-      // Short press
-      if (pressDuration < LONG_PRESS_MS) {
-        if (currentScreen == SCR_CATEGORY) {
-          currentScreen = SCR_IDLE;
-        } else if (currentScreen == SCR_IDLE) {
-          currentScreen = SCR_CATEGORY;
-        }
-      }
-
-      buttonPressed = false;
-    }
-  }
-
-  lastButtonState = currentButtonState;
 }
