@@ -80,10 +80,26 @@ require 'includes/header.php';
                 $statusClass = $d['status'] === 'suspicious' ? 'badge-suspicious' : ($d['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
                 $threatValue = (int)($d['threat_score'] ?? 0);
                 $threatClass = $threatValue >= 70 ? 'threat-high' : ($threatValue >= 40 ? 'threat-medium' : 'threat-low');
+                $deviceData = [
+                    'mac' => (string)$d['mac_address'],
+                    'name' => (string)($d['device_name'] ?? ''),
+                    'vendor' => (string)($d['vendor'] ?? ''),
+                    'type' => (string)($d['device_type'] ?? ''),
+                    'rssi' => (string)($d['rssi'] ?? ''),
+                    'sightings' => (string)($d['sighting_count'] ?? ''),
+                    'status' => (string)($statusText),
+                    'threat' => (string)$threatValue,
+                    'event_time' => (string)($d['event_time'] ?? ''),
+                    'location_id' => (string)($d['location_id'] ?? '')
+                ];
                 ?>
-                <div class="device-item status-<?= htmlspecialchars($d['status']) ?>">
+                <div class="device-item status-<?= htmlspecialchars($d['status']) ?> device-clickable"
+                     tabindex="0"
+                     role="button"
+                     data-device='<?= htmlspecialchars(json_encode($deviceData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>'
+                     aria-label="Open details for <?= htmlspecialchars($d['mac_address']) ?>">
                     <div class="device-primary">
-                        <div class="device-mac mono"><a href="device_timeline.php?mac=<?= urlencode($d['mac_address']) ?>"><?= htmlspecialchars($d['mac_address']) ?></a></div>
+                        <div class="device-mac mono"><?= htmlspecialchars($d['mac_address']) ?></div>
                         <div class="device-meta"><?= htmlspecialchars($d['vendor'] ?? 'Unknown vendor') ?> · <?= htmlspecialchars($d['device_type'] ?? 'Unknown type') ?></div>
                     </div>
                     <div class="device-stats">
@@ -107,6 +123,38 @@ require 'includes/header.php';
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
+</div>
+
+<div class="card map-shortcut-card">
+    <div>
+        <p class="eyebrow">Tactical View</p>
+        <h3>BLE Radar Map</h3>
+        <p>Visualize current detections around the ESP32/GPS reference point.</p>
+    </div>
+    <a class="button-link primary" href="map.php">Open Radar Map</a>
+</div>
+
+<div id="deviceModal" class="device-modal" aria-hidden="true">
+    <div class="device-modal-backdrop" data-close-modal></div>
+    <div class="device-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deviceModalTitle">
+        <button type="button" class="device-modal-close" data-close-modal aria-label="Close device details">×</button>
+        <p class="eyebrow">Detection Details</p>
+        <h3 id="deviceModalTitle" class="mono">BLE Device</h3>
+        <div class="modal-detail-grid">
+            <div><span>Vendor</span><strong id="modalVendor">Unknown</strong></div>
+            <div><span>Type</span><strong id="modalType">Unknown</strong></div>
+            <div><span>RSSI</span><strong id="modalRssi">Not available</strong></div>
+            <div><span>Proximity</span><strong id="modalProximity">Approximate only</strong></div>
+            <div><span>Threat</span><strong id="modalThreat">0/100</strong></div>
+            <div><span>Status</span><strong id="modalStatus">Unknown</strong></div>
+            <div><span>Sightings</span><strong id="modalSightings">Not available</strong></div>
+            <div><span>Last Seen</span><strong id="modalLastSeen">Not available</strong></div>
+        </div>
+        <div class="modal-actions">
+            <a id="modalMapLink" class="button-link primary" href="map.php">View on Map</a>
+            <button type="button" class="secondary" data-close-modal>Close</button>
+        </div>
+    </div>
 </div>
 
 <?php
@@ -168,6 +216,59 @@ if ($insights):
 </div>
 
 <script>
+(function () {
+    const modal = document.getElementById('deviceModal');
+    if (!modal) return;
+
+    const byId = id => document.getElementById(id);
+
+    function proximityFromRssi(rssi) {
+        const value = Number(rssi);
+        if (!Number.isFinite(value)) return 'Not available';
+        if (value >= -55) return 'Very near';
+        if (value >= -70) return 'Nearby';
+        if (value >= -85) return 'Moderate';
+        return 'Far';
+    }
+
+    function openModal(raw) {
+        let data;
+        try { data = JSON.parse(raw); } catch (_) { return; }
+        byId('deviceModalTitle').textContent = data.mac || 'BLE Device';
+        byId('modalVendor').textContent = data.vendor || 'Unknown';
+        byId('modalType').textContent = data.type || 'Unknown';
+        byId('modalRssi').textContent = data.rssi !== '' ? data.rssi + ' dBm' : 'Not available';
+        byId('modalProximity').textContent = proximityFromRssi(data.rssi);
+        byId('modalThreat').textContent = (data.threat || '0') + '/100';
+        byId('modalStatus').textContent = data.status || 'Unknown';
+        byId('modalSightings').textContent = data.sightings || 'Not available';
+        byId('modalLastSeen').textContent = data.event_time || 'Not available';
+        byId('modalMapLink').href = 'map.php?mac=' + encodeURIComponent(data.mac || '');
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+
+    function closeModal() {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+
+    document.querySelectorAll('.device-clickable').forEach(item => {
+        item.addEventListener('click', () => openModal(item.dataset.device));
+        item.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openModal(item.dataset.device);
+            }
+        });
+    });
+
+    modal.querySelectorAll('[data-close-modal]').forEach(el => el.addEventListener('click', closeModal));
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
+})();
+
 function filterTable() {
     const q = document.getElementById('searchBox').value.toLowerCase();
     const rows = document.querySelectorAll('#eventsTable tr:not(:first-child)');

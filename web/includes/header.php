@@ -20,6 +20,7 @@ $currentPage = basename($_SERVER['PHP_SELF']);
     <title>BLE Guard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="map.css">
 </head>
 <body>
 <div class="app-layout">
