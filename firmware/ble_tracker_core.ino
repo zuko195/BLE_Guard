@@ -356,7 +356,6 @@ bool isAppleFindMyDevice(const NimBLEAdvertisedDevice* dev) {
   return isApple && isFindMyType;
 }
 
-
 // (Full color state-machine comes in Module 6 alongside the OLED -
 //  for now, this file just uses Red for alerts and Green as a quick
 //  "whitelist confirmed" flash, matching our RGB LED plan)
@@ -642,7 +641,6 @@ int calculateThreatScore(const TrackedDevice &t) {
   return score;
 }
 
-
 // ---------- Check for newly-suspicious devices ----------
 void evaluateSuspicion() {
   bool anyFlaggedRightNow = false;
@@ -804,8 +802,6 @@ double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
   double c = 2 * atan2(sqrt(a), sqrt(1-a));
   return R * c;
 }
-
-
 
 // ============================================================
 // MODULE 5: WI-FI + BACKEND REPORTING (now with automated setup)
@@ -1085,7 +1081,6 @@ void syncConfigFromServer() {
   http.end();
 }
 
-
 // Sends one detection event to the backend as JSON, using ArduinoJson to
 // build it - handles escaping of quotes/backslashes/control characters
 // automatically, which manual string concatenation did not. This matters
@@ -1147,8 +1142,6 @@ void sendEventToBackend(const TrackedDevice &t, const String &status) {
 
   http.end();
 }
-
-
 
 // ============================================================
 // MODULE 6: OLED RENDER FUNCTIONS
