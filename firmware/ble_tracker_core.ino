@@ -71,7 +71,7 @@ bool wifiConnected = false;
 // This is the current Cloudflare Quick Tunnel URL.
 // If the Quick Tunnel is restarted and the URL changes, update this value
 // and upload the firmware again.
-const char* BACKEND_BASE_URL = "https://emails-fever-assign-personnel.trycloudflare.com";
+const char* BACKEND_BASE_URL = "https://sri-bear-precise-training.trycloudflare.com";
 #define MAX_BACKUP_NETWORKS 5
 #define RESET_HOLD_MS 3000  // hold button 3+ sec during boot to reset config
 struct BackupNetwork { String ssid; String password; };
