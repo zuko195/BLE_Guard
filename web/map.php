@@ -27,9 +27,9 @@ if ($deviceIds) {
             SELECT mac_address, MAX(event_time) AS max_time
             FROM ble_events
             WHERE device_id IN ($placeholders)
-              AND event_time >= NOW() - INTERVAL 15 MINUTE
-            GROUP BY mac_address
-        ) latest ON e.mac_address = latest.mac_address AND e.event_time = latest.max_time
+              AND event_time >= NOW() - INTERVAL 5 MINUTE
+            GROUP BY device_id, mac_address
+        ) latest ON e.device_id = latest.device_id AND e.mac_address = latest.mac_address AND e.event_time = latest.max_time
         WHERE e.device_id IN ($placeholders)
           AND e.status != 'whitelisted'
           AND e.event_time >= NOW() - INTERVAL 15 MINUTE
@@ -105,7 +105,7 @@ require 'includes/header.php';
         <div class="card-heading">
             <div>
                 <h3>Live Proximity Radar</h3>
-                <span class="card-caption"><?= count($tracked) ?> active BLE device<?= count($tracked) === 1 ? '' : 's' ?> · last 15 minutes</span>
+                <span class="card-caption"><?= count($tracked) ?> active BLE device<?= count($tracked) === 1 ? '' : 's' ?> · last 5 minutes</span>
             </div>
             <span class="radar-legend"><i class="legend-dot legend-esp"></i> ESP32</span>
         </div>
@@ -198,7 +198,7 @@ require 'includes/header.php';
     <?php if (!$devicePayload): ?>
         <div class="empty-state">
             <h4>No active BLE detections</h4>
-            <p>No non-whitelisted BLE events have been reported in the last 15 minutes.</p>
+            <p>No non-whitelisted BLE events have been reported in the last 5 minutes.</p>
         </div>
     <?php else: ?>
         <div class="map-device-table">

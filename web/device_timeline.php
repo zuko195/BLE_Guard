@@ -6,7 +6,7 @@ $userId = $_SESSION['user_id'];
 
 $mac = isset($_GET['mac']) ? trim((string)$_GET['mac']) : '';
 $mac = preg_replace('/\s+/', '', $mac);
-$macIsValid = $mac !== '' && preg_match('/^[0-9A-Fa-f:.\-]+$/', $mac) === 1;
+$macIsValid = $mac !== '' && preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $mac) === 1;
 
 $stmt = $pdo->prepare("SELECT id FROM devices WHERE user_id = ?");
 $stmt->execute([$userId]);

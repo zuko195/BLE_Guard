@@ -47,13 +47,13 @@ if ($deviceIds) {
     $suspiciousByDay = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$sightingsLabels = json_encode($sightingsByDay ? range(1, count($sightingsByDay)) : []);
 $sightingsData = json_encode(array_column($sightingsByDay, 'cnt'));
-$suspiciousLabels = json_encode($suspiciousByDay ? range(1, count($suspiciousByDay)) : []);
 $suspiciousData = json_encode(array_column($suspiciousByDay, 'cnt'));
 $hasDeviceData = !empty($deviceList);
 $hasSightingsData = !empty($sightingsByDay);
 $hasSuspiciousData = !empty($suspiciousByDay);
+$sightingsLabels = json_encode(array_map(static fn($row) => date('M j', strtotime($row['day'])), $sightingsByDay));
+$suspiciousLabels = json_encode(array_map(static fn($row) => date('M j', strtotime($row['day'])), $suspiciousByDay));
 
 require 'includes/header.php';
 ?>
@@ -73,7 +73,7 @@ require 'includes/header.php';
     <div class="card-heading">
         <div>
             <h3>Devices Seen</h3>
-            <p class="card-caption">Top devices observed during the selected window.</p>
+            <p class="card-caption">All devices observed during the selected window, grouped by MAC address.</p>
         </div>
     </div>
     <?php if (!$hasDeviceData): ?>
@@ -84,7 +84,7 @@ require 'includes/header.php';
     <?php else: ?>
         <div class="device-list">
             <?php foreach ($deviceList as $i => $d): ?>
-            <div class="device-item">
+            <a class="device-item" href="device_timeline.php?mac=<?= urlencode($d['mac_address']) ?>">
                 <div class="device-primary">
                     <div class="device-mac mono">#<?= $i + 1 ?> <?= htmlspecialchars($d['mac_address']) ?></div>
                     <div class="device-meta">Vendor: <?= htmlspecialchars($d['vendor'] ?? 'Unknown') ?></div>
@@ -95,7 +95,7 @@ require 'includes/header.php';
                         <div class="stat-value"><?= htmlspecialchars($d['total_sightings']) ?></div>
                     </div>
                 </div>
-            </div>
+            </a>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
