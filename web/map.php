@@ -17,7 +17,6 @@ $deviceIds = array_column($devices, 'id');
 
 $tracked = [];
 $gpsEvent = null;
-$ACTIVE_WINDOW_MINUTES = 5;
 
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
