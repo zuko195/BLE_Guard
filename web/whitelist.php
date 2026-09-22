@@ -10,13 +10,13 @@ $stmt->execute([$userId]);
 $deviceIds = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
 $primaryDeviceId = $deviceIds[0] ?? null;
 
-// Currently tracked devices, for the dropdown
+// Known detected devices available for the dropdown. Existing event history is reused; no database changes are required.
 $trackedOptions = [];
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
-    $stmt = $pdo->prepare("SELECT DISTINCT mac_address FROM ble_events WHERE device_id IN ($placeholders) AND status != 'whitelisted'");
+    $stmt = $pdo->prepare("SELECT mac_address, MAX(vendor) AS vendor, MAX(device_type) AS device_type, MAX(event_time) AS last_seen FROM ble_events WHERE device_id IN ($placeholders) AND status != 'whitelisted' GROUP BY mac_address ORDER BY last_seen DESC");
     $stmt->execute($deviceIds);
-    $trackedOptions = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'mac_address');
+    $trackedOptions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 $message = "";
@@ -28,7 +28,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $primaryDeviceId) {
     if (isset($_POST['add_mac'])) {
         $mac = trim($_POST['add_mac']);
         if (preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $mac)) {
-            if (in_array(strtoupper($mac), array_map('strtoupper', $trackedOptions), true)) {
+            $trackedMacs = array_map(static fn($row) => strtoupper((string)$row['mac_address']), $trackedOptions);
+            if (in_array(strtoupper($mac), $trackedMacs, true)) {
                 $stmt = $pdo->prepare("INSERT IGNORE INTO whitelist (device_id, mac_address) VALUES (?, ?)");
                 $stmt->execute([$primaryDeviceId, strtoupper($mac)]);
                 $message = "Added to whitelist.";
@@ -53,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $primaryDeviceId) {
 $whitelisted = [];
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
-    $stmt = $pdo->prepare("SELECT * FROM whitelist WHERE device_id IN ($placeholders) ORDER BY added_at DESC");
+    $stmt = $pdo->prepare("SELECT w.*, e.vendor, e.device_type, e.rssi, e.sighting_count, e.event_time AS last_seen FROM whitelist w LEFT JOIN ble_events e ON e.device_id = w.device_id AND e.mac_address = w.mac_address AND e.event_time = (SELECT MAX(e2.event_time) FROM ble_events e2 WHERE e2.device_id = w.device_id AND e2.mac_address = w.mac_address) WHERE w.device_id IN ($placeholders) ORDER BY w.added_at DESC");
     $stmt->execute($deviceIds);
     $whitelisted = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -77,7 +78,7 @@ require 'includes/header.php';
     <div class="card-heading">
         <div>
             <h3>Add Trusted Device</h3>
-            <p class="card-caption">Select a currently detected device to mark as trusted.</p>
+            <p class="card-caption">Select a known detected device from your existing event history to mark it as trusted.</p>
         </div>
     </div>
     <form method="POST" class="form-grid">
@@ -85,16 +86,16 @@ require 'includes/header.php';
         <?php if ($trackedOptions): ?>
             <label for="macSelect" class="form-label">Select a detected device:</label>
             <select id="macSelect" name="add_mac" required>
-                <option value="">Select a currently tracked device</option>
-                <?php foreach ($trackedOptions as $mac): ?>
-                    <option value="<?= htmlspecialchars($mac) ?>"><?= htmlspecialchars($mac) ?></option>
+                <option value="">Select a detected device</option>
+                <?php foreach ($trackedOptions as $option): ?>
+                    <option value="<?= htmlspecialchars($option['mac_address']) ?>"><?= htmlspecialchars($option['mac_address']) ?> — <?= htmlspecialchars($option['vendor'] ?: 'Unknown vendor') ?> · <?= htmlspecialchars($option['device_type'] ?: 'Unknown type') ?></option>
                 <?php endforeach; ?>
             </select>
             <button type="submit" class="primary">Add to Whitelist</button>
         <?php else: ?>
             <div class="empty-state">
                 <h4>No new devices are available to whitelist.</h4>
-                <p>Once BLE Guard detects a new device, it will appear here.</p>
+                <p>Devices remain available here from your existing detection history until they are whitelisted.</p>
             </div>
         <?php endif; ?>
     </form>
@@ -118,7 +119,10 @@ require 'includes/header.php';
                 <div class="card-list-item status-whitelisted">
                     <div>
                         <div class="device-mac mono"><?= htmlspecialchars($w['mac_address']) ?></div>
-                        <?php if (!empty($w['device_id'])): ?><div class="device-meta">Device ID: <?= htmlspecialchars($w['device_id']) ?></div><?php endif; ?>
+                        <?php if (!empty($w['device_id'])): ?><div class="device-meta">ESP32 Device ID: <?= htmlspecialchars($w['device_id']) ?></div><?php endif; ?>
+                        <div class="device-meta">Vendor: <?= htmlspecialchars($w['vendor'] ?: 'Unknown vendor') ?> · Type: <?= htmlspecialchars($w['device_type'] ?: 'Unknown type') ?></div>
+                        <?php if ($w['rssi'] !== null): ?><div class="device-meta">Last RSSI: <?= htmlspecialchars($w['rssi']) ?> dBm</div><?php endif; ?>
+                        <?php if ($w['last_seen']): ?><div class="device-meta">Last seen <?= htmlspecialchars(date('M j, Y H:i', strtotime($w['last_seen']))) ?></div><?php endif; ?>
                         <?php if (!empty($w['added_at'])): ?><div class="device-meta">Added <?= htmlspecialchars(date('M j, Y H:i', strtotime($w['added_at']))) ?></div><?php endif; ?>
                     </div>
                     <form method="POST" class="inline-form">
