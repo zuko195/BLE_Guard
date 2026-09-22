@@ -13,7 +13,6 @@ $deviceIds = array_column($devices, 'id');
 $events = [];
 $currentlyTracked = [];
 $suspiciousCount = 0;
-$ACTIVE_WINDOW_MINUTES = 5;
 
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
