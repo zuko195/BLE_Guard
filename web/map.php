@@ -24,7 +24,7 @@ if ($deviceIds) {
     $stmt = $pdo->prepare("
         SELECT e.* FROM ble_events e
         INNER JOIN (
-            SELECT mac_address, MAX(event_time) AS max_time
+            SELECT device_id, mac_address, MAX(event_time) AS max_time
             FROM ble_events
             WHERE device_id IN ($placeholders)
               AND event_time >= NOW() - INTERVAL 5 MINUTE
@@ -32,7 +32,7 @@ if ($deviceIds) {
         ) latest ON e.device_id = latest.device_id AND e.mac_address = latest.mac_address AND e.event_time = latest.max_time
         WHERE e.device_id IN ($placeholders)
           AND e.status != 'whitelisted'
-          AND e.event_time >= NOW() - INTERVAL 15 MINUTE
+          AND e.event_time >= NOW() - INTERVAL 5 MINUTE
         ORDER BY e.event_time DESC
     ");
     $stmt->execute(array_merge($deviceIds, $deviceIds));
