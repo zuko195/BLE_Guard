@@ -17,19 +17,19 @@ $suspiciousCount = 0;
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
 
-    // Currently detected = most recent event per MAC within the last 15 minutes, only non-whitelisted
+    // Currently detected = most recent event per device/MAC within the active window, only non-whitelisted
     $stmt = $pdo->prepare("
         SELECT e.* FROM ble_events e
         INNER JOIN (
-            SELECT mac_address, MAX(event_time) AS max_time
+            SELECT device_id, mac_address, MAX(event_time) AS max_time
             FROM ble_events
             WHERE device_id IN ($placeholders)
-              AND event_time >= NOW() - INTERVAL 15 MINUTE
-            GROUP BY mac_address
-        ) latest ON e.mac_address = latest.mac_address AND e.event_time = latest.max_time
+              AND event_time >= NOW() - INTERVAL 5 MINUTE
+            GROUP BY device_id, mac_address
+        ) latest ON e.device_id = latest.device_id AND e.mac_address = latest.mac_address AND e.event_time = latest.max_time
         WHERE e.device_id IN ($placeholders)
           AND e.status != 'whitelisted'
-          AND e.event_time >= NOW() - INTERVAL 15 MINUTE
+          AND e.event_time >= NOW() - INTERVAL 5 MINUTE
         ORDER BY e.event_time DESC
     ");
     $stmt->execute(array_merge($deviceIds, $deviceIds));
@@ -70,7 +70,7 @@ require 'includes/header.php';
     <?php if (!$currentlyTracked): ?>
         <div class="empty-state">
             <h4>No devices detected</h4>
-            <p>No BLE devices have been detected within the last 15 minutes.</p>
+            <p>No BLE devices have been detected within the last 5 minutes.</p>
         </div>
     <?php else: ?>
         <div class="device-list">
