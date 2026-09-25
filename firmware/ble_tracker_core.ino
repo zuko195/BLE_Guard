@@ -199,10 +199,11 @@ int alertDeviceIndex = -1;                  // which tracked[] slot is being ale
 #define BUTTON_DEBOUNCE_MS 50
 
 // Runtime button events are captured by an interrupt so a press is not missed
-// while the ESP32 is busy inside a BLE scan. The ISR only records state;
-// all OLED, LED, whitelist, and screen work remains in the normal loop.
+// while the ESP32 is busy inside a BLE scan. Action is selected on release:
+// <800 ms = short press, 800 ms to <3 sec = whitelist, 3+ sec = config reset.
 volatile bool buttonShortPressPending = false;
 volatile bool buttonLongPressPending = false;
+volatile bool buttonResetPending = false;
 volatile bool buttonIsDown = false;
 volatile unsigned long buttonPressStartMs = 0;
 volatile unsigned long buttonLastEdgeMs = 0;
@@ -210,8 +211,6 @@ volatile unsigned long buttonLastEdgeMs = 0;
 void IRAM_ATTR buttonISR() {
   unsigned long now = millis();
 
-  // Basic hardware debounce. Ignore edges arriving too quickly after the
-  // previous edge, which filters normal switch contact bounce.
   if ((now - buttonLastEdgeMs) < BUTTON_DEBOUNCE_MS) return;
   buttonLastEdgeMs = now;
 
@@ -224,7 +223,9 @@ void IRAM_ATTR buttonISR() {
     buttonIsDown = false;
     unsigned long duration = now - buttonPressStartMs;
 
-    if (duration >= LONG_PRESS_MS) {
+    if (duration >= RESET_HOLD_MS) {
+      buttonResetPending = true;
+    } else if (duration >= LONG_PRESS_MS) {
       buttonLongPressPending = true;
     } else {
       buttonShortPressPending = true;
@@ -594,8 +595,15 @@ void whitelistTopSuspicious() {
     renderWhitelistConfirm(tracked[bestIdx].mac);
     delay(400);
     setLED(false, false, false);
-    currentScreen = previousScreen;
+
+    // Return to the screen that was active before the alert.
+    // If no alert was active, keep the current screen instead of jumping
+    // to a stale previousScreen value.
+    if (currentScreen == SCR_ALERT) {
+      currentScreen = previousScreen;
+    }
     alertDeviceIndex = -1;
+    renderCurrentScreen();
   } else {
     Serial.println("[WHITELIST] Whitelist full.");
   }
@@ -831,6 +839,21 @@ void saveBackupNetworksToFlash() {
   prefs.end();
 }
 
+// Clears saved BLE Guard configuration and WiFi credentials, then restarts.
+void wipeSavedConfigAndRestart() {
+  Serial.println("Reset gesture detected - wiping saved config...");
+
+  prefs.begin("bleguard", false);
+  prefs.clear();
+  prefs.end();
+
+  WiFiManager wm;
+  wm.resetSettings();
+
+  delay(500);
+  ESP.restart();
+}
+
 // Checks if the button is intentionally held at boot. A brief debounce
 // prevents switch bounce from being mistaken for a reset gesture.
 // This is only used during startup; normal runtime handling is interrupt-based.
@@ -856,14 +879,7 @@ void checkForConfigReset() {
 
     if (elapsed >= RESET_HOLD_MS) {
       Serial.println("Reset gesture detected - wiping saved config...");
-      prefs.begin("bleguard", false);
-      prefs.clear(); // API key, server host, backup networks, and whitelist
-      prefs.end();
-
-      WiFiManager wm;
-      wm.resetSettings(); // Remove WiFiManager's saved Wi-Fi settings too
-      delay(500);
-      ESP.restart();
+      wipeSavedConfigAndRestart();
     }
 
     delay(10);
@@ -1231,7 +1247,18 @@ void renderAlert(const TrackedDevice &t) {
   display.setCursor(0, 40);
   display.print("Tracked: "); display.print((t.lastSeen - t.firstSeen) / 60000); display.println(" min");
   display.setCursor(0, 52);
-  display.println("Hold btn=whitelist");
+  display.println("0.8-3s=WL  3s+=RST");
+  display.display();
+}
+
+void renderResetNotice() {
+  display.clearDisplay();
+  display.setCursor(0, 12);
+  display.println("RESETTING...");
+  display.setCursor(0, 28);
+  display.println("Clearing memory");
+  display.setCursor(0, 40);
+  display.println("and WiFi settings");
   display.display();
 }
 
@@ -1374,20 +1401,33 @@ void loop() {
 void handleButtonEvents() {
   bool shortPress = false;
   bool longPress = false;
+  bool resetPress = false;
 
   noInterrupts();
   shortPress = buttonShortPressPending;
   longPress = buttonLongPressPending;
+  resetPress = buttonResetPending;
   buttonShortPressPending = false;
   buttonLongPressPending = false;
+  buttonResetPending = false;
   interrupts();
 
-  // Long press = whitelist the currently displayed/top suspicious device.
-  if (longPress) {
-    whitelistTopSuspicious();
+  // 3+ second hold always has highest priority.
+  if (resetPress) {
+    renderResetNotice();
+    setLED(true, false, false);
+    delay(500);
+    wipeSavedConfigAndRestart();
+    return;
   }
 
-  // Short press = dismiss an alert, otherwise toggle the two home screens.
+  // 0.8-3 second hold = whitelist the current/top suspicious device.
+  if (longPress) {
+    whitelistTopSuspicious();
+    return;
+  }
+
+  // Short press = dismiss an alert, otherwise switch the two home screens.
   if (shortPress) {
     if (currentScreen == SCR_ALERT) {
       currentScreen = previousScreen;
