@@ -195,41 +195,102 @@ enum ScreenState { SCR_CATEGORY, SCR_IDLE, SCR_ALERT };
 ScreenState currentScreen = SCR_CATEGORY;   // home screen = Category Summary
 ScreenState previousScreen = SCR_CATEGORY;  // where to return after alert/whitelist
 int alertDeviceIndex = -1;                  // which tracked[] slot is being alerted
-#define LONG_PRESS_MS 800
+
+// Button timing:
+//   < 800 ms  = short press -> switch OLED screen
+//   800 ms to < 3000 ms = whitelist current/top suspicious device
+//   >= 3000 ms = reset saved configuration
+#define LONG_PRESS_MS      800
 #define BUTTON_DEBOUNCE_MS 50
 
-// Runtime button events are captured by an interrupt so a press is not missed
-// while the ESP32 is busy inside a BLE scan. Action is selected on release:
-// <800 ms = short press, 800 ms to <3 sec = whitelist, 3+ sec = config reset.
-volatile bool buttonShortPressPending = false;
-volatile bool buttonLongPressPending = false;
-volatile bool buttonResetPending = false;
-volatile bool buttonIsDown = false;
-volatile unsigned long buttonPressStartMs = 0;
-volatile unsigned long buttonLastEdgeMs = 0;
+enum ButtonEventType {
+  BUTTON_EVENT_SHORT,
+  BUTTON_EVENT_WHITELIST,
+  BUTTON_EVENT_RESET
+};
 
-void IRAM_ATTR buttonISR() {
-  unsigned long now = millis();
+struct ButtonEvent {
+  ButtonEventType type;
+  uint32_t durationMs;
+};
 
-  if ((now - buttonLastEdgeMs) < BUTTON_DEBOUNCE_MS) return;
-  buttonLastEdgeMs = now;
+QueueHandle_t buttonQueue = nullptr;
 
-  bool pressed = (digitalRead(BUTTON_PIN) == LOW);
+// Runtime button handling is deliberately independent of loop().
+// BLE scans and HTTP calls can block loop() for seconds, so polling GPIO33
+// from loop() is not sufficient. This task samples the button every 10 ms,
+// debounces it, and puts completed actions into a small event queue.
+void buttonTask(void *parameter) {
+  bool stableState = (digitalRead(BUTTON_PIN) == LOW);
+  bool lastRawPressed = stableState;
 
-  if (pressed && !buttonIsDown) {
-    buttonIsDown = true;
-    buttonPressStartMs = now;
-  } else if (!pressed && buttonIsDown) {
-    buttonIsDown = false;
-    unsigned long duration = now - buttonPressStartMs;
+  uint32_t lastRawChangeMs = millis();
+  uint32_t pressStartMs = 0;
+  bool resetEventSent = false;
 
-    if (duration >= RESET_HOLD_MS) {
-      buttonResetPending = true;
-    } else if (duration >= LONG_PRESS_MS) {
-      buttonLongPressPending = true;
-    } else {
-      buttonShortPressPending = true;
+  for (;;) {
+    const uint32_t now = millis();
+    const bool rawPressed = (digitalRead(BUTTON_PIN) == LOW);
+
+    // Start/restart debounce timer whenever the raw input changes.
+    if (rawPressed != lastRawPressed) {
+      lastRawPressed = rawPressed;
+      lastRawChangeMs = now;
     }
+
+    // Accept a new stable state only after the debounce interval.
+    if ((now - lastRawChangeMs) >= BUTTON_DEBOUNCE_MS &&
+        rawPressed != stableState) {
+
+      stableState = rawPressed;
+
+      if (stableState) {
+        // Confirmed press.
+        pressStartMs = now;
+        resetEventSent = false;
+        Serial.println("[BUTTON] Pressed");
+      } else {
+        // Confirmed release. Generate short/whitelist action unless
+        // the 3-second reset event was already sent while held.
+        if (pressStartMs != 0 && !resetEventSent) {
+          const uint32_t duration = now - pressStartMs;
+
+          ButtonEvent event;
+          event.type = (duration >= LONG_PRESS_MS)
+                         ? BUTTON_EVENT_WHITELIST
+                         : BUTTON_EVENT_SHORT;
+          event.durationMs = duration;
+
+          if (xQueueSend(buttonQueue, &event, 0) != pdTRUE) {
+            Serial.println("[BUTTON] Event queue full; event dropped");
+          }
+        }
+
+        Serial.println("[BUTTON] Released");
+        pressStartMs = 0;
+      }
+    }
+
+    // Reset is emitted at the 3-second threshold while the button is still
+    // physically held. It therefore does not depend on the release edge.
+    if (stableState &&
+        pressStartMs != 0 &&
+        !resetEventSent &&
+        (now - pressStartMs) >= RESET_HOLD_MS) {
+
+      ButtonEvent event;
+      event.type = BUTTON_EVENT_RESET;
+      event.durationMs = now - pressStartMs;
+
+      if (xQueueSend(buttonQueue, &event, 0) == pdTRUE) {
+        resetEventSent = true;
+        Serial.println("[BUTTON] 3-second hold reached -> RESET event queued");
+      } else {
+        Serial.println("[BUTTON] RESET event queue full");
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
@@ -874,9 +935,6 @@ void checkForConfigReset() {
   while (digitalRead(BUTTON_PIN) == LOW) {
     unsigned long elapsed = millis() - start;
 
-    // Blink red while the reset gesture is being held.
-    digitalWrite(RGB_RED_PIN, (elapsed / 200) % 2);
-
     if (elapsed >= RESET_HOLD_MS) {
       Serial.println("Reset gesture detected - wiping saved config...");
       wipeSavedConfigAndRestart();
@@ -886,7 +944,6 @@ void checkForConfigReset() {
   }
 
   // Released before 3 seconds: continue normal startup.
-  digitalWrite(RGB_RED_PIN, LOW);
 }
 
 // First-time (or post-reset) setup via captive portal. WiFiManager handles
@@ -982,6 +1039,8 @@ void syncConfigFromServer() {
   client.setInsecure();  // Demo/testing mode: do not verify the server certificate.
 
   HTTPClient http;
+  http.setConnectTimeout(2500);
+  http.setTimeout(4000);
   String url = String(BACKEND_BASE_URL) + "/get_config.php";
 
   Serial.print("[BACKEND] Config URL: ");
@@ -1111,6 +1170,8 @@ void sendEventToBackend(const TrackedDevice &t, const String &status) {
   client.setInsecure();  // Demo/testing mode: do not verify the server certificate.
 
   HTTPClient http;
+  http.setConnectTimeout(2500);
+  http.setTimeout(4000);
   String url = String(BACKEND_BASE_URL) + "/api_log_event.php";
 
   Serial.print("[BACKEND] Event URL: ");
@@ -1293,7 +1354,27 @@ void setup() {
   pinMode(RGB_BLUE_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   checkForConfigReset(); // hold button 3+ sec at boot to wipe config and re-enter setup mode
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, CHANGE);
+
+  buttonQueue = xQueueCreate(8, sizeof(ButtonEvent));
+  if (buttonQueue == nullptr) {
+    Serial.println("[BUTTON] ERROR: failed to create button event queue");
+  } else {
+    BaseType_t taskResult = xTaskCreatePinnedToCore(
+      buttonTask,
+      "ButtonTask",
+      2048,
+      nullptr,
+      3,
+      nullptr,
+      1
+    );
+
+    if (taskResult != pdPASS) {
+      Serial.println("[BUTTON] ERROR: failed to start button task");
+    } else {
+      Serial.println("[BUTTON] Runtime button task started");
+    }
+  }
 
   setLED(false, false, false); // start with LED off
 
@@ -1317,8 +1398,10 @@ void setup() {
     testClient.setInsecure();  // Demo/testing mode.
 
     HTTPClient testHttp;
+    testHttp.setConnectTimeout(2500);
+    testHttp.setTimeout(4000);
 
-    Serial.println("===== BACKEND HTTPS CONNECTION TEST =====");
+    Serial.println("===== BACKEND HTTPS CONNECTION TEST =====";
     Serial.print("ESP32 IP: ");
     Serial.println(WiFi.localIP());
 
@@ -1378,16 +1461,27 @@ void setup() {
 void loop() {
   static int locationRefreshCounter = 0;
   static int configSyncCounter = 0;
+
+  // Service events before starting another potentially-blocking operation.
+  handleButtonEvents();
+
   if (configSyncCounter++ % 60 == 0) {
     syncConfigFromServer(); // check for backup-network changes roughly every ~60 scan cycles
-  }
-  if (locationRefreshCounter++ % 10 == 0) {
-    currentLocationID = getCurrentLocationID(); // non-blocking: updates if GPS bytes available
+    handleButtonEvents();
   }
 
-  // Run one scan cycle
+  if (locationRefreshCounter++ % 10 == 0) {
+    currentLocationID = getCurrentLocationID(); // non-blocking: updates if GPS bytes available
+    handleButtonEvents();
+  }
+
+  // Run one scan cycle. The button task continues independently while this
+  // blocking BLE scan is active, so presses are not lost.
   pScan->getResults(SCAN_TIME_SEC * 1000, false);
   pScan->clearResults();
+
+  // Process button events that may have arrived during the BLE scan.
+  handleButtonEvents();
 
   evaluateSuspicion();
   printTable();
@@ -1396,45 +1490,51 @@ void loop() {
   handleButtonEvents();
 }
 
-// Process button events captured by the interrupt. This function runs in the
-// normal context, so it is safe to update OLED/LED state and call other modules.
+// Process button events generated by the dedicated button task.
+// This runs in normal Arduino context, so OLED/LED/NVS/network functions are safe here.
 void handleButtonEvents() {
-  bool shortPress = false;
-  bool longPress = false;
-  bool resetPress = false;
+  if (buttonQueue == nullptr) return;
 
-  noInterrupts();
-  shortPress = buttonShortPressPending;
-  longPress = buttonLongPressPending;
-  resetPress = buttonResetPending;
-  buttonShortPressPending = false;
-  buttonLongPressPending = false;
-  buttonResetPending = false;
-  interrupts();
+  ButtonEvent event;
 
-  // 3+ second hold always has highest priority.
-  if (resetPress) {
-    renderResetNotice();
-    setLED(true, false, false);
-    delay(500);
-    wipeSavedConfigAndRestart();
-    return;
-  }
+  while (xQueueReceive(buttonQueue, &event, 0) == pdTRUE) {
 
-  // 0.8-3 second hold = whitelist the current/top suspicious device.
-  if (longPress) {
-    whitelistTopSuspicious();
-    return;
-  }
+    switch (event.type) {
 
-  // Short press = dismiss an alert, otherwise switch the two home screens.
-  if (shortPress) {
-    if (currentScreen == SCR_ALERT) {
-      currentScreen = previousScreen;
-      alertDeviceIndex = -1;
-    } else {
-      currentScreen = (currentScreen == SCR_CATEGORY) ? SCR_IDLE : SCR_CATEGORY;
+      case BUTTON_EVENT_RESET:
+        Serial.print("[BUTTON] RESET action, hold duration = ");
+        Serial.print(event.durationMs);
+        Serial.println(" ms");
+
+        renderResetNotice();
+        setLED(true, false, false);
+        delay(200);
+        wipeSavedConfigAndRestart();
+        return;
+
+      case BUTTON_EVENT_WHITELIST:
+        Serial.print("[BUTTON] WHITELIST action, hold duration = ");
+        Serial.print(event.durationMs);
+        Serial.println(" ms");
+
+        whitelistTopSuspicious();
+        break;
+
+      case BUTTON_EVENT_SHORT:
+        Serial.print("[BUTTON] SCREEN action, press duration = ");
+        Serial.print(event.durationMs);
+        Serial.println(" ms");
+
+        if (currentScreen == SCR_ALERT) {
+          currentScreen = previousScreen;
+          alertDeviceIndex = -1;
+        } else {
+          currentScreen =
+            (currentScreen == SCR_CATEGORY) ? SCR_IDLE : SCR_CATEGORY;
+        }
+
+        renderCurrentScreen();
+        break;
     }
-    renderCurrentScreen();
   }
 }
