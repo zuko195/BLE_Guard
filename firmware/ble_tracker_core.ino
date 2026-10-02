@@ -225,7 +225,7 @@ void buttonTask(void *parameter) {
   bool lastRawPressed = stableState;
 
   uint32_t lastRawChangeMs = millis();
-  uint32_t pressStartMs = 0;
+  uint32_t pressStartMs = stableState ? lastRawChangeMs : 0;
   bool resetEventSent = false;
 
   for (;;) {
