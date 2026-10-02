@@ -1401,7 +1401,7 @@ void setup() {
     testHttp.setConnectTimeout(2500);
     testHttp.setTimeout(4000);
 
-    Serial.println("===== BACKEND HTTPS CONNECTION TEST =====";
+    Serial.println("===== BACKEND HTTPS CONNECTION TEST =====");
     Serial.print("ESP32 IP: ");
     Serial.println(WiFi.localIP());
 
