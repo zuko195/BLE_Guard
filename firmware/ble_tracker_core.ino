@@ -900,7 +900,9 @@ void saveBackupNetworksToFlash() {
   prefs.end();
 }
 
-// Clears saved BLE Guard configuration and WiFi credentials, then restarts.
+// Clears saved BLE Guard configuration and WiFi credentials.
+// The button is intentionally released before rebooting so the next boot
+// cannot mistake the same held button as a second reset gesture.
 void wipeSavedConfigAndRestart() {
   Serial.println("Reset gesture detected - wiping saved config...");
 
@@ -911,7 +913,26 @@ void wipeSavedConfigAndRestart() {
   WiFiManager wm;
   wm.resetSettings();
 
-  delay(500);
+  Serial.println("[RESET] Configuration cleared.");
+  Serial.println("[RESET] Release GPIO33 button to reboot.");
+
+  // Wait for a real release, with a safety timeout so a stuck button
+  // cannot keep the firmware trapped here forever.
+  const uint32_t RELEASE_TIMEOUT_MS = 10000;
+  uint32_t waitStart = millis();
+
+  while (digitalRead(BUTTON_PIN) == LOW &&
+         millis() - waitStart < RELEASE_TIMEOUT_MS) {
+    delay(10);
+  }
+
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    Serial.println("[RESET] Button still LOW after timeout; rebooting anyway.");
+  } else {
+    Serial.println("[RESET] Button released.");
+  }
+
+  delay(300);
   ESP.restart();
 }
 
@@ -963,15 +984,30 @@ String normalizeServerHost(String host) {
 }
 
 void runSetupPortal() {
+  Serial.println("[SETUP] No API configuration found.");
+  Serial.println("[SETUP] Starting BLE-Guard-Setup captive portal.");
+
+  renderSetupMode();
+
   WiFiManager wm;
   WiFiManagerParameter customApiKey("apikey", "BLE Guard API Key", "", 64);
   WiFiManagerParameter customServer("server", "Server host (e.g. yourhost.com)", "", 64);
   wm.addParameter(&customApiKey);
   wm.addParameter(&customServer);
 
+  // Do not make a failed setup look like a firmware hang.
+  wm.setConfigPortalTimeout(180);
+
   bool connected = wm.autoConnect("BLE-Guard-Setup"); // hotspot name during setup
   if (!connected) {
-    Serial.println("Setup portal timed out - restarting...");
+    Serial.println("[SETUP] Portal timed out after 180 seconds.");
+    display.clearDisplay();
+    display.setCursor(0, 16);
+    display.println("SETUP TIMEOUT");
+    display.setCursor(0, 30);
+    display.println("Restarting...");
+    display.display();
+    delay(1500);
     ESP.restart();
   }
 
@@ -1235,6 +1271,23 @@ void renderBoot() {
   display.display();
 }
 
+void renderSetupMode() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("SETUP MODE");
+  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
+  display.setCursor(0, 16);
+  display.println("Connect to WiFi:");
+  display.setCursor(0, 28);
+  display.println("BLE-Guard-Setup");
+  display.setCursor(0, 40);
+  display.println("Then open:");
+  display.setCursor(0, 52);
+  display.println("192.168.4.1");
+  display.display();
+}
+
 void renderLocalOnlyNotice() {
   display.clearDisplay();
   display.setCursor(0, 10);
@@ -1314,12 +1367,15 @@ void renderAlert(const TrackedDevice &t) {
 
 void renderResetNotice() {
   display.clearDisplay();
-  display.setCursor(0, 12);
+  display.setTextSize(1);
+  display.setCursor(0, 6);
   display.println("RESETTING...");
-  display.setCursor(0, 28);
-  display.println("Clearing memory");
-  display.setCursor(0, 40);
-  display.println("and WiFi settings");
+  display.setCursor(0, 20);
+  display.println("Clearing config");
+  display.setCursor(0, 32);
+  display.println("WiFi settings...");
+  display.setCursor(0, 48);
+  display.println("Release button");
   display.display();
 }
 
