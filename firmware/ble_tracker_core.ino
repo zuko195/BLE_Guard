@@ -56,8 +56,9 @@ bool wifiScanInProgress = false;
 
 #include <WiFiManager.h>
 
-// Forward declaration for Arduino IDE auto-generated function prototypes.
-struct TrackedDevice;
+// Define TrackedDevice in a separate header so Arduino's generated function
+// prototypes see the type before any function using it is declared.
+#include "TrackedDevice.h"
 
 // Non-blocking setup portal state. The portal is serviced by its own
 // FreeRTOS task so BLE scanning can continue while BLE-Guard-Setup is open.
