@@ -67,6 +67,10 @@ String savedApiKey = "";
 String savedServerHost = ""; // kept for compatibility with older saved configuration
 bool wifiConnected = false;
 
+// Set only by an intentional button reset. This lets a reset boot open the
+// captive setup portal without making a normal no-configuration boot block.
+bool forceSetupPortal = false;
+
 // Public HTTPS endpoint for the BLE Guard backend.
 // This is the current Cloudflare Quick Tunnel URL.
 // If the Quick Tunnel is restarted and the URL changes, update this value
@@ -881,6 +885,7 @@ void loadConfigFromFlash() {
   prefs.begin("bleguard", true);
   savedApiKey = prefs.getString("api_key", "");
   savedServerHost = normalizeServerHost(prefs.getString("server_host", ""));
+  forceSetupPortal = prefs.getBool("force_setup", false);
   backupNetworkCount = prefs.getInt("net_count", 0);
   if (backupNetworkCount > MAX_BACKUP_NETWORKS) backupNetworkCount = MAX_BACKUP_NETWORKS;
   for (int i = 0; i < backupNetworkCount; i++) {
@@ -908,12 +913,16 @@ void wipeSavedConfigAndRestart() {
 
   prefs.begin("bleguard", false);
   prefs.clear();
+
+  // Preserve a one-shot marker so the next boot opens BLE-Guard-Setup.
+  prefs.putBool("force_setup", true);
   prefs.end();
 
   WiFiManager wm;
   wm.resetSettings();
 
   Serial.println("[RESET] Configuration cleared.");
+  Serial.println("[RESET] Next boot will open BLE-Guard-Setup.");
   Serial.println("[RESET] Release GPIO33 button to reboot.");
 
   // Wait for a real release, with a safety timeout so a stuck button
@@ -1013,14 +1022,18 @@ void runSetupPortal() {
 
   String normalizedHost = normalizeServerHost(String(customServer.getValue()));
 
-  // Save the custom fields the user entered into the portal
+  // Save the custom fields the user entered into the portal.
+  // A successful setup clears the one-shot reset marker so later normal
+  // boots do not automatically reopen the captive portal.
   prefs.begin("bleguard", false);
   prefs.putString("api_key", customApiKey.getValue());
   prefs.putString("server_host", normalizedHost);
+  prefs.putBool("force_setup", false);
   prefs.end();
 
   savedApiKey = customApiKey.getValue();
   savedServerHost = normalizedHost;
+  forceSetupPortal = false;
   wifiConnected = true;
   Serial.println("Setup complete, connected to WiFi.");
 }
@@ -1030,10 +1043,15 @@ void runSetupPortal() {
 void connectWiFi() {
   loadConfigFromFlash();
 
+  if (forceSetupPortal) {
+    // Only an intentional button reset requests the captive portal.
+    Serial.println("[SETUP] Button reset requested configuration setup.");
+    runSetupPortal();
+    return;
+  }
+
   if (savedApiKey == "") {
-    // No API configuration is available. Do NOT block the firmware in
-    // WiFiManager here. BLE Guard must still operate as a standalone
-    // local scanner even when WiFi/API details have not been entered.
+    // Normal boot with no API configuration: continue scanning locally.
     wifiConnected = false;
     Serial.println("No API key/configuration saved - local-only BLE scanning mode.");
     return;
