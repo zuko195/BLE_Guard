@@ -56,6 +56,37 @@ bool wifiScanInProgress = false;
 
 #include <WiFiManager.h>
 
+// Non-blocking setup portal state. The portal is serviced by its own
+// FreeRTOS task so BLE scanning can continue while BLE-Guard-Setup is open.
+WiFiManager setupWM;
+WiFiManagerParameter setupApiKeyParam("apikey", "BLE Guard API Key", "", 64);
+WiFiManagerParameter setupServerParam("server", "Server host (e.g. yourhost.com)", "", 64);
+volatile bool setupPortalActive = false;
+volatile bool setupPortalConnected = false;
+volatile bool setupPortalFailed = false;
+bool setupPortalParamsAdded = false;
+TaskHandle_t setupPortalTaskHandle = nullptr;
+
+// Process the WiFiManager portal independently of the BLE scanning loop.
+// WiFiManager documents setConfigPortalBlocking(false) + process() as the
+// non-blocking mode intended for applications that must keep doing other work.
+void setupPortalTask(void *parameter) {
+  for (;;) {
+    if (setupPortalActive) {
+      bool connected = setupWM.process();
+
+      if (connected) {
+        setupPortalConnected = true;
+        setupPortalActive = false;
+        setupWM.stopConfigPortal();
+        Serial.println("[SETUP] WiFi configuration accepted; portal closed.");
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
 // ============================================================
 // WIFI / BACKEND CONFIG
 // ============================================================
@@ -803,6 +834,22 @@ String wifiFingerprintFromScan(int networkCount) {
 // hashes visible WiFi APs into a location fingerprint. Runtime scans are
 // asynchronous so BLE scanning is never paused for a multi-second WiFi scan.
 String getCurrentLocationID(bool allowBlocking = false) {
+  // During intentional setup mode, keep GPS processing but do not launch
+  // WiFi fingerprint scans because the WiFi radio is serving BLE-Guard-Setup.
+  if (!allowBlocking && forceSetupPortal) {
+    while (gpsSerial.available() > 0) {
+      gps.encode(gpsSerial.read());
+    }
+    if (gps.location.isValid() && gps.location.isUpdated()) {
+      usingGPSFix = true;
+      char buf[40];
+      snprintf(buf, sizeof(buf), "GPS:%.5f,%.5f", gps.location.lat(), gps.location.lng());
+      return String(buf);
+    }
+    usingGPSFix = false;
+    return currentLocationID.length() ? currentLocationID : String("UNKNOWN_LOCATION");
+  }
+
   // --- Try GPS first ---
   if (allowBlocking) {
     unsigned long start = millis();
@@ -993,53 +1040,33 @@ String normalizeServerHost(String host) {
 }
 
 void runSetupPortal() {
-  Serial.println("[SETUP] No API configuration found.");
-  Serial.println("[SETUP] Starting BLE-Guard-Setup captive portal.");
-
+  Serial.println("[SETUP] Intentional reset -> starting BLE-Guard-Setup.");
   renderSetupMode();
 
-  WiFiManager wm;
-  WiFiManagerParameter customApiKey("apikey", "BLE Guard API Key", "", 64);
-  WiFiManagerParameter customServer("server", "Server host (e.g. yourhost.com)", "", 64);
-  wm.addParameter(&customApiKey);
-  wm.addParameter(&customServer);
-
-  // Do not make a failed setup look like a firmware hang.
-  wm.setConfigPortalTimeout(180);
-
-  // This function is entered only for an intentional reset, so force the
-  // configuration portal to start instead of allowing autoConnect() to reuse
-  // any previously saved WiFi settings.
-  bool connected = wm.startConfigPortal("BLE-Guard-Setup");
-  if (!connected) {
-    Serial.println("[SETUP] Portal timed out after 180 seconds.");
-    display.clearDisplay();
-    display.setCursor(0, 16);
-    display.println("SETUP TIMEOUT");
-    display.setCursor(0, 30);
-    display.println("Restarting...");
-    display.display();
-    delay(1500);
-    ESP.restart();
+  if (!setupPortalParamsAdded) {
+    setupWM.addParameter(&setupApiKeyParam);
+    setupWM.addParameter(&setupServerParam);
+    setupPortalParamsAdded = true;
   }
 
-  String normalizedHost = normalizeServerHost(String(customServer.getValue()));
+  // Critical: do not block here. The button task, BLE scan loop, GPS and OLED
+  // must continue while the configuration AP/web portal is active.
+  setupWM.setConfigPortalBlocking(false);
+  setupWM.setConfigPortalTimeout(0); // stay available until the user saves/exits
 
-  // Save the custom fields the user entered into the portal.
-  // A successful setup clears the one-shot reset marker so later normal
-  // boots do not automatically reopen the captive portal.
-  prefs.begin("bleguard", false);
-  prefs.putString("api_key", customApiKey.getValue());
-  prefs.putString("server_host", normalizedHost);
-  prefs.putBool("force_setup", false);
-  prefs.end();
+  bool started = setupWM.startConfigPortal("BLE-Guard-Setup");
 
-  savedApiKey = customApiKey.getValue();
-  savedServerHost = normalizedHost;
-  forceSetupPortal = false;
-  wifiConnected = true;
-  Serial.println("Setup complete, connected to WiFi.");
+  // In non-blocking mode startConfigPortal() returns immediately. A false
+  // return here means "not connected yet", not "portal failed".
+  setupPortalFailed = false;
+  setupPortalConnected = false;
+  setupPortalActive = true;
+
+  Serial.println("[SETUP] BLE-Guard-Setup AP is running alongside BLE scanning.");
+  Serial.println("[SETUP] Portal address: http://192.168.4.1");
+  (void)started;
 }
+
 
 // Tries the primary network (saved by WiFiManager) first, then falls back
 // through the backup network list (managed from the website) in order.
@@ -1048,8 +1075,11 @@ void connectWiFi() {
 
   if (forceSetupPortal) {
     // Only an intentional button reset requests the captive portal.
+    // Start it non-blocking so BLE Guard immediately continues into its
+    // normal local scanning loop.
     Serial.println("[SETUP] Button reset requested configuration setup.");
     runSetupPortal();
+    wifiConnected = false;
     return;
   }
 
@@ -1456,6 +1486,25 @@ void setup() {
     }
   }
 
+  if (setupPortalTaskHandle == nullptr) {
+    BaseType_t setupTaskResult = xTaskCreatePinnedToCore(
+      setupPortalTask,
+      "SetupPortalTask",
+      4096,
+      nullptr,
+      1,
+      &setupPortalTaskHandle,
+      1
+    );
+
+    if (setupTaskResult != pdPASS) {
+      Serial.println("[SETUP] ERROR: failed to start setup portal task");
+      setupPortalTaskHandle = nullptr;
+    } else {
+      Serial.println("[SETUP] Non-blocking portal task started");
+    }
+  }
+
   setLED(false, false, false); // start with LED off
 
   Wire.begin(OLED_SDA, OLED_SCL);
@@ -1538,9 +1587,54 @@ void setup() {
   setLED(false, true, false); // green = ready/normal
 }
 
+// Save WiFiManager custom fields after the portal task reports a successful
+// connection. This runs in the normal Arduino context, not inside the
+// WiFiManager task, so NVS/String work stays out of the portal processor.
+void handleSetupPortalCompletion() {
+  if (!setupPortalConnected) return;
+
+  setupPortalConnected = false;
+
+  String normalizedHost = normalizeServerHost(String(setupServerParam.getValue()));
+  String enteredApiKey = String(setupApiKeyParam.getValue());
+
+  prefs.begin("bleguard", false);
+  prefs.putString("api_key", enteredApiKey.c_str());
+  prefs.putString("server_host", normalizedHost.c_str());
+  prefs.putBool("force_setup", false);
+  prefs.end();
+
+  savedApiKey = enteredApiKey;
+  savedServerHost = normalizedHost;
+  forceSetupPortal = false;
+  wifiConnected = (WiFi.status() == WL_CONNECTED);
+
+  Serial.println("[SETUP] Custom BLE Guard configuration saved.");
+  Serial.print("[SETUP] WiFi status: ");
+  Serial.println(wifiConnected ? "CONNECTED" : "NOT CONNECTED");
+
+  if (wifiConnected) {
+    display.clearDisplay();
+    display.setCursor(0, 8);
+    display.println("SETUP COMPLETE");
+    display.setCursor(0, 24);
+    display.println("BLE scanning");
+    display.setCursor(0, 36);
+    display.println("continues...");
+    display.display();
+    delay(1000);
+    renderCurrentScreen();
+  } else {
+    Serial.println("[SETUP] WiFi was not connected after portal exit; continuing local-only.");
+  }
+}
+
 void loop() {
   static int locationRefreshCounter = 0;
   static int configSyncCounter = 0;
+
+  // Finish intentional setup in the normal context while BLE scanning continues.
+  handleSetupPortalCompletion();
 
   // Service events before starting another potentially-blocking operation.
   handleButtonEvents();
