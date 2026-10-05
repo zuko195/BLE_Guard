@@ -1,3 +1,5 @@
+struct TrackedDevice;
+
 /*
   BLE Guard - Core Firmware (Modules 1-6, all implemented)
   ----------------------------------------------------------------------
@@ -56,9 +58,36 @@ bool wifiScanInProgress = false;
 
 #include <WiFiManager.h>
 
-// Define TrackedDevice in a separate header so Arduino's generated function
-// prototypes see the type before any function using it is declared.
-#include "TrackedDevice.h"
+// Complete definition stays in this single .ino file.
+// The forward declaration above lets Arduino's generated prototypes
+// reference TrackedDevice safely.
+struct TrackedDevice {
+  bool     used;
+  String   mac;
+  String   deviceName;
+  String   vendor;
+  String   deviceType;
+  bool     isAppleFindMy;
+  String   firstLocationID;
+  String   lastLocationID;
+  int      distinctLocationCount;
+  unsigned long lastAdvTime;
+  long     intervalSum;
+  int      intervalCount;
+  long     rssiSqSum;
+  int      lastRSSI;
+  long     rssiSum;
+  int      sightingCount;
+  unsigned long firstSeen;
+  unsigned long lastSeen;
+  bool     flagged;
+  String   fingerprint;
+  float    rssiEMA;
+  float    rssiVar;
+  int      rssiEmaCount;
+  double   lastLat;
+  double   lastLng;
+};
 
 // Non-blocking setup portal state. The portal is serviced by its own
 // FreeRTOS task so BLE scanning can continue while BLE-Guard-Setup is open.
@@ -77,13 +106,24 @@ TaskHandle_t setupPortalTaskHandle = nullptr;
 void setupPortalTask(void *parameter) {
   for (;;) {
     if (setupPortalActive) {
-      bool connected = setupWM.process();
+      // Keep BLE-Guard-Setup available until setup is actually completed.
+      // If the user closes the page without saving setup, reopen it.
+      if (!setupWM.getConfigPortalActive()) {
+        setupWM.setConfigPortalBlocking(false);
+        setupWM.setConfigPortalTimeout(0);
+        setupWM.startConfigPortal("BLE-Guard-Setup");
+        Serial.println("[SETUP] Portal reopened - setup details are still required.");
+      }
 
-      if (connected) {
-        setupPortalConnected = true;
-        setupPortalActive = false;
-        setupWM.stopConfigPortal();
-        Serial.println("[SETUP] WiFi configuration accepted; portal closed.");
+      if (setupWM.getConfigPortalActive()) {
+        bool connected = setupWM.process();
+
+        if (connected) {
+          setupPortalConnected = true;
+          setupPortalActive = false;
+          setupWM.stopConfigPortal();
+          Serial.println("[SETUP] WiFi configuration accepted; setup can now complete.");
+        }
       }
     }
 
