@@ -1031,8 +1031,11 @@ void connectWiFi() {
   loadConfigFromFlash();
 
   if (savedApiKey == "") {
-    // No config saved yet - this is a first boot or post-reset state
-    runSetupPortal();
+    // No API configuration is available. Do NOT block the firmware in
+    // WiFiManager here. BLE Guard must still operate as a standalone
+    // local scanner even when WiFi/API details have not been entered.
+    wifiConnected = false;
+    Serial.println("No API key/configuration saved - local-only BLE scanning mode.");
     return;
   }
 
