@@ -1007,7 +1007,10 @@ void runSetupPortal() {
   // Do not make a failed setup look like a firmware hang.
   wm.setConfigPortalTimeout(180);
 
-  bool connected = wm.autoConnect("BLE-Guard-Setup"); // hotspot name during setup
+  // This function is entered only for an intentional reset, so force the
+  // configuration portal to start instead of allowing autoConnect() to reuse
+  // any previously saved WiFi settings.
+  bool connected = wm.startConfigPortal("BLE-Guard-Setup");
   if (!connected) {
     Serial.println("[SETUP] Portal timed out after 180 seconds.");
     display.clearDisplay();
