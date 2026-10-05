@@ -119,10 +119,19 @@ void setupPortalTask(void *parameter) {
         bool connected = setupWM.process();
 
         if (connected) {
-          setupPortalConnected = true;
-          setupPortalActive = false;
-          setupWM.stopConfigPortal();
-          Serial.println("[SETUP] WiFi configuration accepted; setup can now complete.");
+          // WiFi connection alone is not enough to finish BLE Guard setup.
+          // Keep the portal open until the required API key has been entered.
+          String enteredApiKey = String(setupApiKeyParam.getValue());
+          enteredApiKey.trim();
+
+          if (enteredApiKey.length() > 0) {
+            setupPortalConnected = true;
+            setupPortalActive = false;
+            setupWM.stopConfigPortal();
+            Serial.println("[SETUP] Required BLE Guard details entered; setup can now complete.");
+          } else {
+            Serial.println("[SETUP] WiFi connected, but BLE Guard API key is still required.");
+          }
         }
       }
     }
@@ -1060,7 +1069,8 @@ void runSetupPortal() {
   // Critical: do not block here. The button task, BLE scan loop, GPS and OLED
   // must continue while the configuration AP/web portal is active.
   setupWM.setConfigPortalBlocking(false);
-  setupWM.setConfigPortalTimeout(0); // stay available until the user saves/exits
+  setupWM.setConfigPortalTimeout(0); // no timeout
+  setupWM.setDisableConfigPortal(false); // do not close just because WiFi connected
 
   bool started = setupWM.startConfigPortal("BLE-Guard-Setup");
 
