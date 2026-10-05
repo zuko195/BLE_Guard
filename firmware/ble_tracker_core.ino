@@ -56,6 +56,9 @@ bool wifiScanInProgress = false;
 
 #include <WiFiManager.h>
 
+// Forward declaration for Arduino IDE auto-generated function prototypes.
+struct TrackedDevice;
+
 // Non-blocking setup portal state. The portal is serviced by its own
 // FreeRTOS task so BLE scanning can continue while BLE-Guard-Setup is open.
 WiFiManager setupWM;
