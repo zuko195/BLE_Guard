@@ -25,12 +25,13 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 <body>
 <div class="app-layout">
     <div class="sidenav">
-        <div class="brand">🛡 BLE GUARD</div>
+        <div class="brand">BLE GUARD</div>
         <a href="dashboard.php" class="<?= $currentPage=='dashboard.php'?'active':'' ?>">Dashboard</a>
+        <a href="map.php" class="<?= $currentPage=='map.php'?'active':'' ?>">Tactical Map</a>
+        <a href="whitelist.php" class="<?= $currentPage=='whitelist.php'?'active':'' ?>">Whitelist</a>
         <a href="history.php" class="<?= $currentPage=='history.php'?'active':'' ?>">History</a>
         <a href="alerts_settings.php" class="<?= $currentPage=='alerts_settings.php'?'active':'' ?>">Email Alerts</a>
         <a href="export.php" class="<?= $currentPage=='export.php'?'active':'' ?>">Export</a>
-        <a href="whitelist.php" class="<?= $currentPage=='whitelist.php'?'active':'' ?>">Whitelist</a>
         <a href="device_settings.php" class="<?= $currentPage=='device_settings.php'?'active':'' ?>">WiFi Settings</a>
         <a href="account.php" class="<?= $currentPage=='account.php'?'active':'' ?>">Account</a>
         <a href="logout.php">Logout</a>

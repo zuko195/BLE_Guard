@@ -33,7 +33,7 @@ if (!preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $input['mac_address'])
     echo json_encode(['error' => 'Invalid MAC address format']);
     exit;
 }
-$allowedStatuses = ['tracking', 'suspicious', 'whitelisted'];
+$allowedStatuses = ['tracking', 'suspicious', 'whitelisted', 'out_of_range'];
 $status = $input['status'] ?? 'tracking';
 if (!in_array($status, $allowedStatuses, true)) {
     http_response_code(400);
@@ -55,27 +55,49 @@ if ($stmt->fetchColumn() >= 60) {
     exit;
 }
 
+// Determine Covert Tracker Ecosystem & Kinematic parameters
+$ecosystem = 'Other';
+if (!empty($input['tracker_ecosystem'])) {
+    $ecosystem = $input['tracker_ecosystem'];
+} elseif (!empty($input['is_apple_findmy']) || ($input['vendor'] ?? '') === 'Apple') {
+    $ecosystem = 'Apple FindMy';
+} elseif (($input['vendor'] ?? '') === 'Samsung') {
+    $ecosystem = 'Samsung SmartTag';
+} elseif (($input['vendor'] ?? '') === 'Tile') {
+    $ecosystem = 'Tile';
+} elseif (($input['vendor'] ?? '') === 'Google') {
+    $ecosystem = 'Google FMDN';
+} elseif (($input['vendor'] ?? '') === 'Beacon') {
+    $ecosystem = 'Beacon';
+}
+
+$isSeparated = !empty($input['is_separated']) ? 1 : 0;
+$displacementM = isset($input['gps_displacement_m']) ? (float)$input['gps_displacement_m'] : 0.0;
+
 // Insert the event - only fields present in payload are used, rest default
 $stmt = $pdo->prepare("
     INSERT INTO ble_events
         (device_id, mac_address, device_name, vendor, device_type, rssi, sighting_count,
-         is_apple_findmy, status, threat_score, location_id, distinct_location_count,
-         adv_interval_ms, rssi_variance)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         is_apple_findmy, tracker_ecosystem, is_separated, status, threat_score, location_id,
+         distinct_location_count, gps_displacement_m, adv_interval_ms, rssi_variance)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 $stmt->execute([
     $deviceId,
     $input['mac_address'],
     $input['device_name']   ?? null,
     $input['vendor']        ?? null,
-    $input['device_type']   ?? null,
+    $input['device_type']   ?? 'Tracker',
     $input['rssi']          ?? null,
     $input['sighting_count']?? null,
     isset($input['is_apple_findmy']) ? (int)$input['is_apple_findmy'] : 0,
+    $ecosystem,
+    $isSeparated,
     $status,
     $input['threat_score']  ?? 0,
     $input['location_id']   ?? null,
     $input['distinct_location_count'] ?? 1,
+    $displacementM,
     $input['adv_interval_ms'] ?? null,
     $input['rssi_variance'] ?? null,
 ]);

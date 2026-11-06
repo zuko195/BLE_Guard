@@ -31,7 +31,7 @@ if ($deviceIds) {
             GROUP BY device_id, mac_address
         ) latest ON e.device_id = latest.device_id AND e.mac_address = latest.mac_address AND e.event_time = latest.max_time
         WHERE e.device_id IN ($placeholders)
-          AND e.status != 'whitelisted'
+          AND e.status NOT IN ('whitelisted', 'out_of_range')
           AND e.event_time >= NOW() - INTERVAL 5 MINUTE
         ORDER BY e.event_time DESC
     ");
@@ -91,12 +91,8 @@ require 'includes/header.php';
     <div>
         <a class="back-link" href="dashboard.php">← Back to Dashboard</a>
         <p class="eyebrow">Tactical Visualization</p>
-        <h2>BLE Radar Map</h2>
-        <p class="hero-subtitle">Approximate proximity view around the ESP32/GPS reference point. BLE markers are not GPS coordinates.</p>
-    </div>
-    <div class="map-status-chip <?= $gpsLat !== null ? 'gps-live' : 'gps-unknown' ?>">
-        <span class="status-dot"></span>
-        GPS <?= $gpsLat !== null ? 'FIX' : 'UNAVAILABLE' ?>
+        <h2>Tactical Radar & Trajectory Map</h2>
+        <p class="hero-subtitle">Approximate proximity view around the ESP32 reference point. BLE markers are not GPS coordinates.</p>
     </div>
 </div>
 
@@ -163,6 +159,9 @@ require 'includes/header.php';
                     <div><span>Threat</span><strong id="selectedThreat"><?= (int)($selected['threat_score'] ?? 0) ?>/100</strong></div>
                     <div><span>Sightings</span><strong id="selectedSightings"><?= htmlspecialchars($selected['sighting_count'] ?? 'Not available') ?></strong></div>
                     <div><span>Last Seen</span><strong id="selectedLastSeen"><?= htmlspecialchars($selected['event_time'] ?? 'Not available') ?></strong></div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <a id="selectedWhitelistBtn" href="whitelist.php<?= !empty($selected['mac_address']) ? '?add_mac=' . urlencode($selected['mac_address']) : '' ?>" class="secondary" style="display: block; text-align: center; text-decoration: none; padding: 0.5rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #333);">+ Whitelist This Tag</a>
                 </div>
             </div>
         </section>
@@ -272,6 +271,11 @@ const initialSelectedMac = <?= json_encode($selectedMac) ?>;
         document.getElementById('selectedThreat').textContent = (device.threat || 0) + '/100';
         document.getElementById('selectedSightings').textContent = device.sightings === null ? 'Not available' : device.sightings;
         document.getElementById('selectedLastSeen').textContent = device.event_time || 'Not available';
+
+        const whitelistBtn = document.getElementById('selectedWhitelistBtn');
+        if (whitelistBtn) {
+            whitelistBtn.href = device.mac ? 'whitelist.php?add_mac=' + encodeURIComponent(device.mac) : 'whitelist.php';
+        }
 
         const suspicious = device.status === 'suspicious';
         selectedBadge.textContent = suspicious ? 'Suspicious' : 'Normal';

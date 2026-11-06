@@ -44,10 +44,13 @@ CREATE TABLE ble_events (
     rssi INT,
     sighting_count INT,
     is_apple_findmy BOOLEAN DEFAULT FALSE,
-    status ENUM('tracking', 'suspicious', 'whitelisted') DEFAULT 'tracking',
+    tracker_ecosystem ENUM('Apple FindMy', 'Samsung SmartTag', 'Tile', 'Google FMDN', 'Beacon', 'Other') DEFAULT 'Other',
+    is_separated BOOLEAN DEFAULT FALSE,
+    status ENUM('tracking', 'suspicious', 'whitelisted', 'out_of_range') DEFAULT 'tracking',
     threat_score INT DEFAULT 0,                   -- 0-100, multi-signal weighted score
     location_id VARCHAR(60) DEFAULT NULL,         -- GPS coords or WiFi-fingerprint hash
     distinct_location_count INT DEFAULT 1,        -- how many different locations this device followed to
+    gps_displacement_m FLOAT DEFAULT 0.0,         -- meters tracker followed host displacement
     adv_interval_ms INT DEFAULT NULL,             -- behavioral fingerprint: advertisement timing
     rssi_variance FLOAT DEFAULT NULL,             -- behavioral fingerprint: signal stability
     event_time DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -59,6 +62,7 @@ CREATE TABLE whitelist (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,
     mac_address VARCHAR(20) NOT NULL,
+    friendly_name VARCHAR(60) DEFAULT NULL,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     UNIQUE KEY unique_whitelist (device_id, mac_address)

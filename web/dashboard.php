@@ -28,7 +28,7 @@ if ($deviceIds) {
             GROUP BY device_id, mac_address
         ) latest ON e.device_id = latest.device_id AND e.mac_address = latest.mac_address AND e.event_time = latest.max_time
         WHERE e.device_id IN ($placeholders)
-          AND e.status != 'whitelisted'
+          AND e.status NOT IN ('whitelisted', 'out_of_range')
           AND e.event_time >= NOW() - INTERVAL 5 MINUTE
         ORDER BY e.event_time DESC
     ");
@@ -42,6 +42,34 @@ if ($deviceIds) {
     $stmt = $pdo->prepare("SELECT COUNT(DISTINCT mac_address) FROM ble_events WHERE device_id IN ($placeholders) AND status = 'suspicious'");
     $stmt->execute($deviceIds);
     $suspiciousCount = $stmt->fetchColumn();
+
+    // Calculate ecosystem breakdowns & active stalkers
+    $countFindMy = 0;
+    $countSamsung = 0;
+    $countTile = 0;
+    $countOther = 0;
+    $activeStalkers = [];
+
+    foreach ($currentlyTracked as $item) {
+        $eco = $item['tracker_ecosystem'] ?? '';
+        $vendor = strtolower($item['vendor'] ?? '');
+        $name = strtolower($item['device_name'] ?? '');
+        $threat = (int)($item['threat_score'] ?? 0);
+
+        if ($eco === 'Apple FindMy' || !empty($item['is_apple_findmy']) || strpos($vendor, 'apple') !== false || strpos($name, 'airtag') !== false) {
+            $countFindMy++;
+        } elseif ($eco === 'Samsung SmartTag' || strpos($vendor, 'samsung') !== false || strpos($name, 'smarttag') !== false) {
+            $countSamsung++;
+        } elseif ($eco === 'Tile' || strpos($vendor, 'tile') !== false || strpos($name, 'tile') !== false) {
+            $countTile++;
+        } else {
+            $countOther++;
+        }
+
+        if ($threat >= 70 || ($item['status'] ?? '') === 'suspicious') {
+            $activeStalkers[] = $item;
+        }
+    }
 }
 
 require 'includes/header.php';
@@ -50,8 +78,8 @@ require 'includes/header.php';
 <div class="dashboard-hero">
     <div>
         <p class="eyebrow">BLE Guard</p>
-        <h2>BLE Security Monitoring</h2>
-        <p class="hero-subtitle">Welcome back, <?= htmlspecialchars($_SESSION['username']) ?>. Review current detections and suspicious activity at a glance.</p>
+        <h2>Covert Tracker & Stalker Defense</h2>
+        <p class="hero-subtitle">Real-time counter-surveillance monitoring unauthorized tags and persistent followers.</p>
     </div>
 </div>
 
@@ -62,15 +90,66 @@ require 'includes/header.php';
     </div>
 <?php else: ?>
 
+<div class="stat-row">
+    <div class="stat-box">
+        <div class="label">Apple FindMy / AirTag</div>
+        <div class="value"><?= $countFindMy ?></div>
+        <span class="card-caption">Active in Range</span>
+    </div>
+    <div class="stat-box">
+        <div class="label">Samsung SmartTag</div>
+        <div class="value"><?= $countSamsung ?></div>
+        <span class="card-caption">Active in Range</span>
+    </div>
+    <div class="stat-box">
+        <div class="label">Tile Trackers</div>
+        <div class="value"><?= $countTile ?></div>
+        <span class="card-caption">Active in Range</span>
+    </div>
+    <div class="stat-box">
+        <div class="label">Other Covert Tags</div>
+        <div class="value"><?= $countOther ?></div>
+        <span class="card-caption">Active in Range</span>
+    </div>
+</div>
+
+<?php if (!empty($activeStalkers)): ?>
+    <?php foreach ($activeStalkers as $stalker): 
+        $stThreat = (int)($stalker['threat_score'] ?? 0);
+        $stDisplacement = (float)($stalker['gps_displacement_m'] ?? 0.0);
+        $stMac = htmlspecialchars($stalker['mac_address']);
+        $stName = htmlspecialchars($stalker['device_name'] ?? 'Covert Tag');
+    ?>
+    <div class="card stalker-alert-card">
+        <div class="card-heading">
+            <span class="threat-pill threat-high">CRITICAL STALKER DETECTED</span>
+            <span class="threat-pill threat-high">Risk: <?= $stThreat ?>/100</span>
+        </div>
+        <div class="stalker-grid">
+            <div><span class="form-label">Identified Device</span><div class="mono" style="font-weight:600;font-size:15px;"><?= $stName ?></div></div>
+            <div><span class="form-label">Identifier (MAC)</span><div class="mono"><?= $stMac ?></div></div>
+            <div><span class="form-label">Sightings</span><div><?= (int)$stalker['sighting_count'] ?> times</div></div>
+            <div><span class="form-label">Followed Distance</span><div><?= $stDisplacement >= 30.0 ? round($stDisplacement) . ' meters co-travel' : 'Continuous Co-Presence' ?></div></div>
+            <div><span class="form-label">Signal Strength</span><div><?= htmlspecialchars($stalker['rssi']) ?> dBm</div></div>
+            <div><span class="form-label">Last Detected</span><div><?= htmlspecialchars($stalker['event_time']) ?></div></div>
+        </div>
+        <div class="modal-actions" style="margin-top:14px;">
+            <a class="button-link primary" href="map.php?mac=<?= urlencode($stMac) ?>">View on Tactical Map</a>
+            <a class="button-link secondary" href="whitelist.php?add_mac=<?= urlencode($stMac) ?>">Whitelist (Known Personal)</a>
+        </div>
+    </div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
 <div class="card dashboard-card">
     <div class="card-heading">
-        <h3>Currently Detected Devices</h3>
-        <span class="card-caption"><?= count($currentlyTracked) ?> active</span>
+        <h3>Currently Detected Trackers</h3>
+        <span class="card-caption"><?= count($currentlyTracked) ?> active · 5m window</span>
     </div>
     <?php if (!$currentlyTracked): ?>
         <div class="empty-state">
-            <h4>No devices detected</h4>
-            <p>No BLE devices have been detected within the last 5 minutes.</p>
+            <h4>No covert trackers detected</h4>
+            <p>Scanning nearby... No unauthorized tracking tags have been detected within the last 5 minutes.</p>
         </div>
     <?php else: ?>
         <div class="device-list">
@@ -82,9 +161,9 @@ require 'includes/header.php';
                 $threatClass = $threatValue >= 70 ? 'threat-high' : ($threatValue >= 40 ? 'threat-medium' : 'threat-low');
                 $deviceData = [
                     'mac' => (string)$d['mac_address'],
-                    'name' => (string)($d['device_name'] ?? ''),
-                    'vendor' => (string)($d['vendor'] ?? ''),
-                    'type' => (string)($d['device_type'] ?? ''),
+                    'name' => (string)($d['device_name'] ?? 'Covert Tag'),
+                    'vendor' => (string)($d['vendor'] ?? 'Covert Tracker'),
+                    'type' => (string)($d['tracker_ecosystem'] ?? $d['device_type'] ?? 'Tracker'),
                     'rssi' => (string)($d['rssi'] ?? ''),
                     'sightings' => (string)($d['sighting_count'] ?? ''),
                     'status' => (string)($statusText),
@@ -98,6 +177,32 @@ require 'includes/header.php';
                      role="button"
                      data-device='<?= htmlspecialchars(json_encode($deviceData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>'
                      aria-label="Open details for <?= htmlspecialchars($d['mac_address']) ?>">
+                    <div class="device-primary">
+                        <div class="device-mac mono"><?= htmlspecialchars($d['mac_address']) ?></div>
+                        <div class="device-meta"><?= htmlspecialchars($d['device_name'] ?? 'Covert Tag') ?> · <?= htmlspecialchars($d['tracker_ecosystem'] ?? $d['vendor'] ?? 'Tracker') ?></div>
+                    </div>
+                    <div class="device-stats">
+                        <div class="device-stat">
+                            <span class="stat-label">RSSI</span>
+                            <span class="stat-value"><?= htmlspecialchars($d['rssi']) ?></span>
+                        </div>
+                        <div class="device-stat">
+                            <span class="stat-label">Threat</span>
+                            <span class="threat-pill <?= $threatClass ?>"><?= $threatValue ?>/100</span>
+                        </div>
+                        <div class="device-stat">
+                            <span class="stat-label">Status</span>
+                            <span class="badge <?= $statusClass ?>"><?= htmlspecialchars($statusText) ?></span>
+                        </div>
+                    </div>
+                    <?php if (!empty($d['event_time'])): ?>
+                        <div class="device-time"><?= htmlspecialchars($d['event_time']) ?></div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</div>
                     <div class="device-primary">
                         <div class="device-mac mono"><?= htmlspecialchars($d['mac_address']) ?></div>
                         <div class="device-meta"><?= htmlspecialchars($d['vendor'] ?? 'Unknown vendor') ?> · <?= htmlspecialchars($d['device_type'] ?? 'Unknown type') ?></div>
@@ -172,36 +277,29 @@ if ($insights):
 </div>
 <?php endif; ?>
 
-<div class="stat-row">
-    <div class="stat-box"><div class="label">Devices</div><div class="value"><?= count($devices) ?></div></div>
-    <div class="stat-box"><div class="label">Currently Detected</div><div class="value"><?= count($currentlyTracked) ?></div></div>
-    <div class="stat-box danger"><div class="label">Suspicious Devices</div><div class="value"><?= $suspiciousCount ?></div></div>
-    <div class="stat-box"><div class="label">Events</div><div class="value"><?= count($events) ?></div></div>
-</div>
-
 <div class="card">
     <div class="card-heading">
-        <h3>Recent Detection Events</h3>
-        <span class="card-caption">Latest activity from your BLE network</span>
+        <h3>Recent Tracker Interception Events</h3>
+        <span class="card-caption">Continuous telemetry stream from ESP32</span>
     </div>
-    <input type="text" id="searchBox" placeholder="Filter by MAC, vendor, or status..." onkeyup="filterTable()">
+    <input type="text" id="searchBox" placeholder="Filter by MAC, name, ecosystem, or status..." onkeyup="filterTable()">
     <div class="table-shell">
         <table id="eventsTable">
-            <tr><th>Time</th><th>MAC</th><th>Name</th><th>Vendor</th><th>Type</th><th>RSSI</th><th>Sightings</th><th>Status</th></tr>
+            <tr><th>Time</th><th>Identifier (MAC)</th><th>Device Name</th><th>Ecosystem</th><th>RSSI</th><th>Sightings</th><th>Threat Status</th></tr>
             <?php foreach ($events as $e): ?>
                 <?php
-                $eventStatusText = $e['status'] === 'suspicious' ? 'Suspicious' : ($e['status'] === 'whitelisted' ? 'Whitelisted' : 'Normal');
-                $eventStatusClass = $e['status'] === 'suspicious' ? 'badge-suspicious' : ($e['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
+                $eventStatusText = $e['status'] === 'suspicious' ? 'Suspicious' : ($e['status'] === 'whitelisted' ? 'Whitelisted' : ($e['status'] === 'out_of_range' ? 'Out of Range' : 'Tracking'));
+                $eventStatusClass = $e['status'] === 'suspicious' ? 'badge-suspicious' : ($e['status'] === 'whitelisted' ? 'badge-whitelisted' : ($e['status'] === 'out_of_range' ? 'badge-inactive' : 'badge-safe'));
                 $eventThreatValue = (int)($e['threat_score'] ?? 0);
                 $eventThreatClass = $eventThreatValue >= 70 ? 'threat-high' : ($eventThreatValue >= 40 ? 'threat-medium' : 'threat-low');
+                $ecoName = !empty($e['tracker_ecosystem']) && $e['tracker_ecosystem'] !== 'Other' ? $e['tracker_ecosystem'] : ($e['vendor'] ?? 'Tracker');
                 ?>
             <tr>
                 <td><?= htmlspecialchars($e['event_time']) ?></td>
                 <td class="mono"><?= htmlspecialchars($e['mac_address']) ?></td>
-                <td><?= htmlspecialchars($e['device_name'] ?? '-') ?></td>
-                <td><?= htmlspecialchars($e['vendor'] ?? '-') ?></td>
-                <td><?= htmlspecialchars($e['device_type'] ?? '-') ?></td>
-                <td><?= htmlspecialchars($e['rssi']) ?></td>
+                <td><?= htmlspecialchars($e['device_name'] ?? 'Covert Tag') ?></td>
+                <td><?= htmlspecialchars($ecoName) ?></td>
+                <td><?= htmlspecialchars($e['rssi']) ?> dBm</td>
                 <td><?= htmlspecialchars($e['sighting_count']) ?></td>
                 <td>
                     <div class="event-meta">
