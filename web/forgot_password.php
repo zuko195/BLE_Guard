@@ -19,9 +19,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($user) {
         $token = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $token);
         // Use DATE_ADD(NOW(), INTERVAL 1 HOUR) to prevent database vs PHP timezone mismatches
-        $pdo->prepare("UPDATE users SET reset_token = ?, reset_expires = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?")
-            ->execute([$token, $user['id']]);
+        $pdo->prepare("UPDATE users SET reset_token = ?, reset_token_hash = ?, reset_expires = DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id = ?")
+            ->execute([$token, $tokenHash, $user['id']]);
 
         require_once 'send_alert_email.php';
         // Dynamically detect protocol (HTTP/HTTPS) for local vs production environments

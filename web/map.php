@@ -38,12 +38,11 @@ if ($deviceIds) {
     $stmt->execute(array_merge($deviceIds, $deviceIds));
     $tracked = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // The firmware already sends GPS coordinates inside location_id as GPS:lat,lng.
-    // We only read that existing value; no firmware/database change is required.
+    // Query the latest valid GPS event (supports both numerical coordinates and legacy location_id)
     $stmt = $pdo->prepare("
         SELECT * FROM ble_events
         WHERE device_id IN ($placeholders)
-          AND location_id LIKE 'GPS:%'
+          AND (gps_lat IS NOT NULL OR location_id LIKE 'GPS:%')
         ORDER BY event_time DESC
         LIMIT 1
     ");
@@ -64,9 +63,14 @@ if (!$selected && $tracked) {
 
 $gpsLat = null;
 $gpsLng = null;
-if ($gpsEvent && preg_match('/^GPS:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)$/', (string)$gpsEvent['location_id'], $m)) {
-    $gpsLat = (float)$m[1];
-    $gpsLng = (float)$m[2];
+if ($gpsEvent) {
+    if ($gpsEvent['gps_lat'] !== null && $gpsEvent['gps_lng'] !== null) {
+        $gpsLat = (float)$gpsEvent['gps_lat'];
+        $gpsLng = (float)$gpsEvent['gps_lng'];
+    } elseif (!empty($gpsEvent['location_id']) && preg_match('/^GPS:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)$/', (string)$gpsEvent['location_id'], $m)) {
+        $gpsLat = (float)$m[1];
+        $gpsLng = (float)$m[2];
+    }
 }
 
 $devicePayload = [];

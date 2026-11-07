@@ -74,13 +74,25 @@ if (!empty($input['tracker_ecosystem'])) {
 $isSeparated = !empty($input['is_separated']) ? 1 : 0;
 $displacementM = isset($input['gps_displacement_m']) ? (float)$input['gps_displacement_m'] : 0.0;
 
+// Extract and range-validate numerical coordinates from incoming location_id string
+$gpsLat = null;
+$gpsLng = null;
+if (!empty($input['location_id']) && preg_match('/^GPS:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)$/', $input['location_id'], $m)) {
+    $lat = (float)$m[1];
+    $lng = (float)$m[2];
+    if ($lat >= -90.0 && $lat <= 90.0 && $lng >= -180.0 && $lng <= 180.0) {
+        $gpsLat = $lat;
+        $gpsLng = $lng;
+    }
+}
+
 // Insert the event - only fields present in payload are used, rest default
 $stmt = $pdo->prepare("
     INSERT INTO ble_events
         (device_id, mac_address, device_name, vendor, device_type, rssi, sighting_count,
          is_apple_findmy, tracker_ecosystem, is_separated, status, threat_score, location_id,
-         distinct_location_count, gps_displacement_m, adv_interval_ms, rssi_variance)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         gps_lat, gps_lng, distinct_location_count, gps_displacement_m, adv_interval_ms, rssi_variance)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 $stmt->execute([
     $deviceId,
@@ -96,6 +108,8 @@ $stmt->execute([
     $status,
     $input['threat_score']  ?? 0,
     $input['location_id']   ?? null,
+    $gpsLat,
+    $gpsLng,
     $input['distinct_location_count'] ?? 1,
     $displacementM,
     $input['adv_interval_ms'] ?? null,

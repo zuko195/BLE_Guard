@@ -4,12 +4,13 @@ require 'config.php';
 require 'includes/csrf.php';
 
 $token = $_GET['token'] ?? $_POST['token'] ?? '';
+$tokenHash = hash('sha256', $token);
 $error = "";
 $success = false;
 
-// Validate token exists and hasn't expired
-$stmt = $pdo->prepare("SELECT id FROM users WHERE reset_token = ? AND reset_expires > NOW()");
-$stmt->execute([$token]);
+// Validate token exists and hasn't expired (supports both hashed reset_token_hash and legacy reset_token)
+$stmt = $pdo->prepare("SELECT id FROM users WHERE (reset_token_hash = ? OR reset_token = ?) AND reset_expires > NOW()");
+$stmt->execute([$tokenHash, $token]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$user) {
@@ -21,7 +22,7 @@ if (!$user) {
     } else {
         $hash = password_hash($_POST['new_password'], PASSWORD_BCRYPT);
         // Clear the token after use - single-use, can't be replayed
-        $pdo->prepare("UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires = NULL, failed_login_attempts = 0, locked_until = NULL WHERE id = ?")
+        $pdo->prepare("UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_hash = NULL, reset_expires = NULL, failed_login_attempts = 0, locked_until = NULL WHERE id = ?")
             ->execute([$hash, $user['id']]);
         $success = true;
     }

@@ -4,7 +4,7 @@
 // MySQL database is attached to the app - no manual config needed there.
 // Falls back to local XAMPP defaults for local testing.
 $DB_HOST = getenv('DB_HOST') ?: "localhost";
-$DB_NAME = getenv('DB_NAME') ?: "ble_tracker";
+$DB_NAME = getenv('DB_NAME') ?: "ble_tracker_v2";
 $DB_USER = getenv('DB_USERNAME') ?: "bleuser";
 
 function getRequiredEnv(string $name): string {

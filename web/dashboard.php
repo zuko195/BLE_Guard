@@ -169,7 +169,9 @@ require 'includes/header.php';
                     'status' => (string)($statusText),
                     'threat' => (string)$threatValue,
                     'event_time' => (string)($d['event_time'] ?? ''),
-                    'location_id' => (string)($d['location_id'] ?? '')
+                    'gps_coords' => ($d['gps_lat'] !== null && $d['gps_lng'] !== null)
+                        ? number_format((float)$d['gps_lat'], 5) . ', ' . number_format((float)$d['gps_lng'], 5)
+                        : (!empty($d['location_id']) ? (string)$d['location_id'] : null)
                 ];
                 ?>
                 <div class="device-item status-<?= htmlspecialchars($d['status']) ?> device-clickable"
