@@ -205,32 +205,6 @@ require 'includes/header.php';
         </div>
     <?php endif; ?>
 </div>
-                    <div class="device-primary">
-                        <div class="device-mac mono"><?= htmlspecialchars($d['mac_address']) ?></div>
-                        <div class="device-meta"><?= htmlspecialchars($d['vendor'] ?? 'Unknown vendor') ?> · <?= htmlspecialchars($d['device_type'] ?? 'Unknown type') ?></div>
-                    </div>
-                    <div class="device-stats">
-                        <div class="device-stat">
-                            <span class="stat-label">RSSI</span>
-                            <span class="stat-value"><?= htmlspecialchars($d['rssi']) ?></span>
-                        </div>
-                        <div class="device-stat">
-                            <span class="stat-label">Threat</span>
-                            <span class="threat-pill <?= $threatClass ?>"><?= $threatValue ?>/100</span>
-                        </div>
-                        <div class="device-stat">
-                            <span class="stat-label">Status</span>
-                            <span class="badge <?= $statusClass ?>"><?= htmlspecialchars($statusText) ?></span>
-                        </div>
-                    </div>
-                    <?php if (!empty($d['event_time'])): ?>
-                        <div class="device-time"><?= htmlspecialchars($d['event_time']) ?></div>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
-</div>
 
 <div class="card map-shortcut-card">
     <div>
