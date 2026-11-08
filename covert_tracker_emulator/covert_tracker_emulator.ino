@@ -129,19 +129,18 @@ void configureAdvertising() {
 
   switch (currentEcosystem) {
     case ECO_APPLE_AIRTAG: {
-      // Apple AirTag / Find My Offline Finding Payload (29 bytes standard)
-      // Flags: 0x1A (LE General Discoverable + BR/EDR Not Supported)
-      advData.setFlags(0x1A);
-
+      // Apple AirTag / Find My Offline Finding Payload (29 bytes)
+      // NOTE: Do NOT add flags AD element here - omitting flags keeps total payload
+      // within the strict 31-byte BLE legacy advertisement limit (30 bytes total wire size).
+      //
       // Apple Manufacturer Specific Data (AD Type 0xFF)
       // Byte 0-1: 0x4C, 0x00 (Apple Inc., Little Endian)
       // Byte 2:   0x12 (Find My Offline Finding type)
       // Byte 3:   0x19 (25 bytes payload length)
-      // Byte 4:   Status byte (Bit 4 set = 0x10 -> Separated from owner / Stalker mode!)
-      //           Status byte (0x00 -> Paired / Near owner)
+      // Byte 4:   Status byte (Bit 4 = 0x10 -> AirTag separated from owner)
       // Byte 5-26: 22 bytes cryptographic public key payload
       // Byte 27:  Hint byte / first 2 bits of key
-      // Byte 28:  Status & battery flags
+      // Byte 28:  Status & battery flags (Bit 2 = 0x04 -> Separated from owner for sniffer DPI)
 
       uint8_t airtagPayload[29];
       airtagPayload[0] = 0x4C; // Apple low byte
@@ -154,7 +153,7 @@ void configureAdvertising() {
       memcpy(&airtagPayload[5], findMyPublicKey, 22);
 
       airtagPayload[27] = 0x00; // Hint
-      airtagPayload[28] = 0x00; // Battery normal
+      airtagPayload[28] = isSeparated ? 0x04 : 0x00; // Bit 2 = Separated (>15 min)
 
       advData.setManufacturerData(std::string((char*)airtagPayload, sizeof(airtagPayload)));
       // AirTags NEVER advertise a name in the primary packet for covertness
@@ -163,7 +162,7 @@ void configureAdvertising() {
 
     case ECO_SAMSUNG_SMARTTAG: {
       advData.setFlags(0x06);
-      advData.setName("SmartTag");
+      scanResponseData.setName("SmartTag");
 
       // Samsung Company ID 0x0075 (0x75, 0x00)
       uint8_t samsungPayload[12];
@@ -187,7 +186,7 @@ void configureAdvertising() {
 
     case ECO_TILE: {
       advData.setFlags(0x06);
-      advData.setName("Tile");
+      scanResponseData.setName("Tile");
 
       // Tile 16-bit Service UUID: 0xFEED
       advData.setCompleteServices(NimBLEUUID((uint16_t)0xFEED));

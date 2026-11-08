@@ -1123,37 +1123,42 @@ void renderGeigerHunter() {
   }
   display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
 
-  // Directional Arrow Line (Permanent display + Animated Chevrons)
-  if (t.rssiGradient > 0.4f) hunterIsCloser = true;
-  else if (t.rssiGradient < -0.4f) hunterIsCloser = false;
-
-  int frame = (millis() / 250) % 3;
-  char arrowBuf[22];
-  if (hunterIsCloser) {
-    if (frame == 0)      snprintf(arrowBuf, sizeof(arrowBuf), "  >    CLOSER!    <  ");
-    else if (frame == 1) snprintf(arrowBuf, sizeof(arrowBuf), " >>    CLOSER!    << ");
-    else                 snprintf(arrowBuf, sizeof(arrowBuf), ">>>    CLOSER!    <<<");
+  // Line 2: Proximity Zone based on absolute RSSI
+  display.setCursor(0, 12);
+  if (t.rssiEMA >= -50.0f) {
+    display.print("ZONE: IMMEDIATE (<1m)");
+  } else if (t.rssiEMA >= -65.0f) {
+    display.print("ZONE: NEAR (1-3m)");
+  } else if (t.rssiEMA >= -80.0f) {
+    display.print("ZONE: MID-RANGE(3-8m)");
   } else {
-    if (frame == 0)      snprintf(arrowBuf, sizeof(arrowBuf), "  <    FARTHER    >  ");
-    else if (frame == 1) snprintf(arrowBuf, sizeof(arrowBuf), " <<    FARTHER    >> ");
-    else                 snprintf(arrowBuf, sizeof(arrowBuf), "<<<    FARTHER    >>>");
+    display.print("ZONE: DISTANT (>8m)");
   }
 
-  display.setCursor(0, 12);
-  display.print(arrowBuf);
-
-  // Signal Strength: Clean dBm (NO duplicate proximity label)
+  // Line 3: Exact RSSI in dBm + Directional Movement Trend
   display.setCursor(0, 23);
-  display.printf("Signal: %.0f dBm", t.rssiEMA);
+  const char* trendStr = "STEADY =";
+  if (t.rssiGradient > 0.6f) trendStr = "CLOSER ^";
+  else if (t.rssiGradient < -0.6f) trendStr = "AWAY v";
+  display.printf("%d dBm | %s", (int)round(t.rssiEMA), trendStr);
 
-  // Proximity Barometer Gauge
-  float normSignal = (t.rssiEMA - (-90.0f)) / ((-40.0f) - (-90.0f));
+  // Line 4: Proximity Barometer Gauge
+  float normSignal = (t.rssiEMA - (-90.0f)) / ((-38.0f) - (-90.0f));
+  if (normSignal < 0.0f) normSignal = 0.0f;
+  if (normSignal > 1.0f) normSignal = 1.0f;
   drawProgressBar(0, 34, 128, 12, normSignal);
 
-  // Footer: Click: Exit | Hold: WL
-  display.drawLine(0, 52, 128, 52, SSD1306_WHITE);
-  display.setCursor(0, 55);
-  display.print("Click: Exit | Hold: WL");
+  // Footer: Freshness age + Exit action
+  display.drawLine(0, 50, 128, 50, SSD1306_WHITE);
+  display.setCursor(0, 54);
+  unsigned long ageSec = (millis() - t.lastSeen) / 1000;
+  if (ageSec <= 2) {
+    display.print("Live Ping | 1x:Exit");
+  } else if (ageSec < 60) {
+    display.printf("Heard %lus ago | Exit", ageSec);
+  } else {
+    display.print("OUT OF RANGE | Exit");
+  }
   display.display();
 }
 
