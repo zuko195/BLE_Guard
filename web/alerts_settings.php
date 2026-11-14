@@ -39,56 +39,60 @@ require 'includes/header.php';
 ?>
 
 <div class="page-hero">
-    <p class="eyebrow">Security Alerts</p>
-    <h2>Email Alert Settings</h2>
-    <p class="hero-subtitle">Control when BLE Guard sends suspicious-device alerts to your registered account email.</p>
+    <div class="hero-title-group">
+        <h2>Email Alert Settings</h2>
+        <p class="hero-subtitle">Configure real-time email dispatch when an unauthorized tracker or separated AirTag is detected.</p>
+    </div>
 </div>
 
 <?php if ($message): ?>
-    <div class="alert <?= htmlspecialchars($messageType) ?>"><?= htmlspecialchars($message) ?></div>
+    <div class="alert <?= $messageType === 'safe' ? 'safe' : 'error' ?>"><?= htmlspecialchars($message) ?></div>
 <?php endif; ?>
 
 <div class="card">
     <form method="POST">
         <?= csrf_field() ?>
 
-        <!-- Premium Custom Switch Toggle -->
-        <div class="switch-container">
-            <div class="switch-label-group">
-                <span class="switch-title">Threat Alerts Status: <span id="toggleStatusText"><?= $user['alerts_enabled'] ? '<span style="color: var(--accent);">Enabled</span>' : '<span style="color: #64748b;">Disabled</span>' ?></span></span>
-                <span class="switch-description">Receive immediate notifications on potential trackers and dangerous BLE activity.</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:var(--space-md); margin-bottom:var(--space-md); border-bottom:1px solid var(--color-rule-subtle);">
+            <div>
+                <strong style="display:block; font-size:var(--text-md); color:#ffffff; margin-bottom:4px;">Stalker Alert Notifications</strong>
+                <p style="font-size:var(--text-xs); color:var(--color-muted);">Dispatch immediate alerts to your security inbox when high-risk tags follow your sniffer.</p>
             </div>
-            <label class="switch">
-                <input type="checkbox" id="alertsToggle" name="alerts_enabled" value="1" <?= $user['alerts_enabled'] ? 'checked' : '' ?> onchange="updateToggleLabel(this)">
-                <span class="slider"></span>
+            <label class="switch" style="position:relative; display:inline-block; width:48px; height:26px;">
+                <input type="checkbox" id="alertsToggle" name="alerts_enabled" value="1" <?= $user['alerts_enabled'] ? 'checked' : '' ?> onchange="updateToggleLabel(this)" style="opacity:0; width:0; height:0;">
+                <span class="slider" style="position:absolute; cursor:pointer; inset:0; background:<?= $user['alerts_enabled'] ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)' ?>; border-radius:34px; transition:.3s;">
+                    <span style="position:absolute; height:20px; width:20px; left:<?= $user['alerts_enabled'] ? '25px' : '3px' ?>; bottom:3px; background:white; border-radius:50%; transition:.3s; display:block;"></span>
+                </span>
             </label>
         </div>
 
-        <!-- Labeled Alert Recipient Email with Lock Icon -->
         <div class="field-group">
             <label for="alertEmail">Alert Recipient Address</label>
             <div style="position: relative; display: flex; align-items: center; gap: 12px;">
                 <div style="position: relative; flex: 1;">
-                    <input type="email" id="alertEmail" name="alert_email" value="<?= htmlspecialchars($user['alert_email'] ?? $user['email']) ?>" readonly style="padding-left: 36px; width: 100%;">
-                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 14px;">🔒</span>
+                    <input type="email" id="alertEmail" name="alert_email" value="<?= htmlspecialchars($user['alert_email'] ?? $user['email']) ?>" readonly style="padding-left: 38px; width: 100%;">
+                    <svg style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--color-muted);" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </div>
-                <button type="button" id="editEmailButton" class="secondary">Edit</button>
+                <button type="button" id="editEmailButton" class="btn btn-sm">Edit Address</button>
             </div>
-            <p class="form-note">This alert recipient is separate from your login email. If left blank, alerts will fall back to your account email.</p>
+            <p style="font-size:var(--text-xs); color:var(--color-muted); margin-top:6px;">Alert recipient is independent of your account username. Leave blank to default to account email.</p>
         </div>
 
-        <div class="form-actions">
-            <button type="submit" id="saveChangesButton" class="primary" style="display: none;">Save Changes</button>
+        <div class="form-actions" style="margin-top:var(--space-md);">
+            <button type="submit" id="saveChangesButton" class="btn btn-primary" style="display: none;">Save Changes</button>
             <noscript><style>#saveChangesButton{display:inline-block !important;}</style></noscript>
         </div>
     </form>
 
-    <div class="card card-secondary" style="margin-top: 24px; padding: 14px 16px; background: rgba(255,255,255,0.01);">
-        <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent);">⚡ Alert Trigger Conditions</h3>
-        <ul style="margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 13px; line-height: 1.6;">
-            <li>A suspicious BLE beacon follows you across multiple distinct locations.</li>
-            <li>The signal RSSI variance indicates a tracker is maintaining close proximity.</li>
-            <li>Known anti-stalking fingerprint matches (such as Apple FindMy/AirTag networks) are flagged.</li>
+    <div style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--color-rule-subtle); border-radius: var(--radius-sm);">
+        <h4 style="font-size: var(--text-sm); margin-bottom: 8px; color: var(--color-accent); display:flex; align-items:center; gap:6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Alert Trigger Criteria
+        </h4>
+        <ul style="margin: 0; padding-left: 18px; color: var(--color-ink-2); font-size: var(--text-xs); line-height: 1.7;">
+            <li>An unauthorized BLE tag is detected continuously across multiple GPS displacement waypoints.</li>
+            <li>Apple Find My / AirTag payload has the separated bit flag active (owner not present).</li>
+            <li>Calculated threat score breaches threshold (>= 70/100).</li>
         </ul>
     </div>
 </div>

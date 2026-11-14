@@ -47,15 +47,18 @@ require 'includes/header.php';
 ?>
 
 <div class="page-hero">
-    <p class="eyebrow">Account Management</p>
-    <h2>Account Settings</h2>
-    <p class="hero-subtitle">Manage password security, device API access, and account actions for your BLE Guard deployment.</p>
+    <div class="hero-title-group">
+        <h2>Account & API Security</h2>
+        <p class="hero-subtitle">Manage credentials, rotate ESP32 device API authorization keys, and security preferences.</p>
+    </div>
 </div>
 
 <?php if ($message): ?><div class="alert safe"><?= htmlspecialchars($message) ?></div><?php endif; ?>
 
 <div class="card">
-    <h3>Change Password</h3>
+    <div class="card-heading">
+        <h3>Change Master Password</h3>
+    </div>
     <form method="POST">
         <?= csrf_field() ?>
         <div class="field-group">
@@ -63,29 +66,33 @@ require 'includes/header.php';
             <input id="new_password" type="password" name="new_password" placeholder="New password (min 6 chars)" required>
         </div>
         <div class="form-actions">
-            <button type="submit">Update Password</button>
+            <button type="submit" class="btn btn-primary">Update Password</button>
         </div>
     </form>
 </div>
 
 <div class="card">
-    <h3>Regenerate API Key</h3>
-    <p class="form-note">Create a new device API key if your current key may have been exposed. The previous key is invalidated immediately.</p>
+    <div class="card-heading">
+        <h3>Regenerate Device API Key</h3>
+    </div>
+    <p style="font-size:var(--text-xs); color:var(--color-muted); margin-bottom:14px;">Rotate the API authentication key used by your ESP32 sniffer node. The prior key will be invalidated instantly.</p>
     <?php if ($newApiKey): ?>
-        <div class="card mono" style="word-break: break-all; border-color: var(--safe);"><?= htmlspecialchars($newApiKey) ?></div>
-        <p class="error">⚠ Copy this now and update your ESP32 firmware - it won't be shown again.</p>
+        <div class="mono" style="word-break: break-all; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--color-success); border-radius: var(--radius-sm); margin-bottom: 12px; color: #6ee7b7; font-weight:600;"><?= htmlspecialchars($newApiKey) ?></div>
+        <p class="alert error" style="margin-bottom: 14px;">Copy this new key immediately and update your ESP32 config. It cannot be recovered once dismissed.</p>
     <?php endif; ?>
     <form method="POST">
         <?= csrf_field() ?>
         <div class="form-actions">
-            <button type="submit" name="regenerate_key" value="1" class="secondary">Regenerate API Key</button>
+            <button type="submit" name="regenerate_key" value="1" class="btn">Rotate API Key</button>
         </div>
     </form>
 </div>
 
-<div class="card danger-card">
-    <h3>Danger Zone: Delete Account</h3>
-    <p class="form-note">This permanently deletes your account and all associated data, including devices, event history, and whitelist entries.</p>
+<div class="card" style="border-color: rgba(244, 63, 94, 0.3);">
+    <div class="card-heading">
+        <h3 style="color: var(--color-error);">Danger Zone: Permanent Account Deletion</h3>
+    </div>
+    <p style="font-size:var(--text-xs); color:var(--color-muted); margin-bottom:14px;">Irrevocably deletes your user profile, registered nodes, whitelist records, and historical telemetry databases.</p>
     <form method="POST" onsubmit="return confirm('This is permanent. Are you absolutely sure?');">
         <?= csrf_field() ?>
         <div class="field-group">
@@ -93,7 +100,7 @@ require 'includes/header.php';
             <input id="confirm_delete" type="text" name="confirm_delete" placeholder="DELETE" required>
         </div>
         <div class="form-actions">
-            <button type="submit" name="delete_account" value="1" class="danger">Delete My Account</button>
+            <button type="submit" name="delete_account" value="1" class="btn btn-danger">Permanently Delete Account</button>
         </div>
     </form>
 </div>

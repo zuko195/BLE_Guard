@@ -58,9 +58,10 @@ require 'includes/header.php';
 ?>
 
 <div class="page-hero">
-    <p class="eyebrow">Network Configuration</p>
-    <h2>WiFi Settings</h2>
-    <p class="hero-subtitle">Manage backup WiFi networks your BLE Guard device will try if the primary connection fails.</p>
+    <div class="hero-title-group">
+        <h2>ESP32 Node & Wi-Fi Configuration</h2>
+        <p class="hero-subtitle">Manage backup wireless networks and fallback routing for your BLE Guard sniffer hardware.</p>
+    </div>
 </div>
 
 <?php if ($message): ?>
@@ -69,54 +70,81 @@ require 'includes/header.php';
 
 <?php if (!$deviceId): ?>
     <div class="card">
-        <p class="form-note">Register a device first to manage WiFi settings. Your API key is available in Account Settings.</p>
+        <p style="color:var(--color-muted);">Register a device first to manage WiFi settings. Your API key is available in Account Settings.</p>
     </div>
 <?php else: ?>
 
 <div class="card">
-    <h3>Add Backup Network</h3>
+    <div class="card-heading">
+        <h3>Add Backup Network</h3>
+        <span class="card-caption">Failover Wi-Fi Pool</span>
+    </div>
     <form method="POST">
         <?= csrf_field() ?>
         <div class="field-group">
-            <label for="ssid">WiFi Name (SSID)</label>
-            <input id="ssid" type="text" name="ssid" placeholder="WiFi Name (SSID)" required>
+            <label for="ssid">Wireless SSID (Network Name)</label>
+            <input id="ssid" type="text" name="ssid" placeholder="e.g. FieldHotspot, Office_5G" required>
         </div>
         <div class="field-group">
-            <label for="wifi_password">WiFi Password</label>
-            <input id="wifi_password" type="password" name="wifi_password" placeholder="WiFi Password (min 8 chars)" required>
-            <p class="form-note">Passwords are stored encrypted and hidden from the dashboard.</p>
+            <label for="wifi_password">WPA2/WPA3 Pre-Shared Key</label>
+            <input id="wifi_password" type="password" name="wifi_password" placeholder="Passphrase (minimum 8 characters)" required>
+            <p style="font-size:var(--text-xs); color:var(--color-muted); margin-top:4px;">Credentials are AES-encrypted before persistence and never displayed in plaintext.</p>
         </div>
-        <div class="form-actions">
-            <button type="submit" name="add_network" value="1">Add Network</button>
+        <div class="form-actions" style="margin-top:var(--space-md);">
+            <button type="submit" name="add_network" value="1" class="btn btn-primary">Enroll Backup Network</button>
         </div>
     </form>
 </div>
 
 <div class="card">
-    <h3>Saved Networks</h3>
-    <p class="form-note">Your device will try saved networks in order until it connects.</p>
+    <div class="card-heading">
+        <h3>Enrolled Failover Networks</h3>
+        <span class="card-caption"><?= count($networks) ?> saved profile<?= count($networks) === 1 ? '' : 's' ?></span>
+    </div>
     <?php if (!$networks): ?>
-        <div class="empty-state">
-            <h4>No backup networks saved</h4>
-            <p>The device's primary network remains active until you add a backup network here.</p>
+        <div style="padding: var(--space-xl); text-align: center; color: var(--color-muted);">
+            <h4>No failover networks enrolled</h4>
+            <p style="margin-top: 6px;">The sniffer node will rely strictly on its initial provisioning network.</p>
+        </div>
+    <?php else: ?>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Priority</th>
+                        <th>Network SSID</th>
+                        <th>Encryption</th>
+                        <th style="text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($networks as $i => $n): ?>
+                        <tr>
+                            <td><span class="badge badge-neutral">Priority #<?= $i + 1 ?></span></td>
+                            <td><strong style="color: #ffffff;"><?= htmlspecialchars($n['ssid']) ?></strong></td>
+                            <td><span class="mono" style="color: var(--color-muted);">AES-256 (Protected)</span></td>
+                            <td style="text-align: right;">
+                                <form method="POST" style="display:inline;" onsubmit="return confirm('Remove backup network?');">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="remove_id" value="<?= $n['id'] ?>">
+                                    <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
     <?php endif; ?>
-    <?php foreach ($networks as $i => $n): ?>
-        <div class="card-list-item status-tracking">
-            <span><?= $i + 1 ?>. <span class="mono"><?= htmlspecialchars($n['ssid']) ?></span></span>
-            <span class="form-note">•••••••• (password hidden)</span>
-            <form method="POST" style="margin:0; width:auto;">
-                <?= csrf_field() ?>
-                <input type="hidden" name="remove_id" value="<?= $n['id'] ?>">
-                <button type="submit" class="danger">Remove</button>
-            </form>
-        </div>
-    <?php endforeach; ?>
 </div>
 
-<div class="card">
-    <h3>Reset Device to Setup Mode</h3>
-    <p class="form-note">To reconfigure from scratch, hold the ESP32 button for 3+ seconds during power-up. This clears saved WiFi settings and launches the setup hotspot.</p>
+<div class="card" style="background: rgba(255,255,255,0.02); border-color: var(--color-rule-subtle);">
+    <div class="card-heading">
+        <h4>Hardware Reset & Re-Provisioning</h4>
+    </div>
+    <p style="font-size:var(--text-xs); color:var(--color-muted); line-height: 1.6;">
+        To wipe stored credentials and force the ESP32 sniffer into SoftAP Provisioning mode, hold the onboard <strong>BOOT (GPIO 0)</strong> button for 3+ seconds while powering up. The OLED will prompt <code>[SETUP MODE]</code>.
+    </p>
 </div>
 
 <?php endif; ?>

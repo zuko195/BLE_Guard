@@ -99,25 +99,32 @@ require 'includes/header.php';
 ?>
 
 <div class="page-hero">
-    <p class="eyebrow">Security Reports</p>
-    <h2>Export Detection Data</h2>
-    <p class="hero-subtitle">Create a downloadable PDF report of BLE events and suspicious activity for review or incident records.</p>
+    <div class="hero-title-group">
+        <h2>Forensic PDF Incident Export</h2>
+        <p class="hero-subtitle">Generate an official counter-surveillance audit report complete with executive narrative, GPS correlation, and timestamps.</p>
+    </div>
 </div>
 
 <div class="card">
-    <p class="form-note">The exported report includes all device events for your account within the selected date range.</p>
-    <form method="POST">
+    <div class="card-heading">
+        <h3>Report Generation Range</h3>
+        <span class="card-caption">A4 Forensic Export</span>
+    </div>
+    <form method="POST" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-md); align-items: flex-end;">
         <?= csrf_field() ?>
-        <div class="field-group">
-            <label>Start date</label>
+        <div class="field-group" style="margin-bottom:0;">
+            <label>Start Date</label>
             <input type="date" name="start_date" required>
         </div>
-        <div class="field-group">
-            <label>End date</label>
+        <div class="field-group" style="margin-bottom:0;">
+            <label>End Date</label>
             <input type="date" name="end_date" required>
         </div>
-        <div class="form-actions">
-            <button type="submit" name="generate" value="1">Generate PDF Report</button>
+        <div>
+            <button type="submit" name="generate" value="1" class="btn btn-primary" style="width:100%;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export Forensic PDF
+            </button>
         </div>
     </form>
 </div>

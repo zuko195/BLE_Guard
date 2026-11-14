@@ -76,13 +76,14 @@ require 'includes/header.php';
 ?>
 
 <div class="dashboard-hero">
-    <p class="eyebrow">Safe Whitelist Manager</p>
-    <h2>Trusted Device Management</h2>
-    <p class="hero-subtitle">Tags registered here are suppressed across firmware OLED alerts and web danger triggers.</p>
+    <div class="hero-title-group">
+        <h2>Trusted Whitelist Manager</h2>
+        <p class="hero-subtitle">Known personal accessories registered here are suppressed across all firmware alerts, OLED screens, and threat feeds.</p>
+    </div>
 </div>
 
 <?php if ($message): ?>
-<div class="alert alert-<?= $messageClass ?>">
+<div class="alert <?= $messageClass === 'safe' ? 'safe' : 'error' ?>">
     <?= htmlspecialchars($message) ?>
 </div>
 <?php endif; ?>
@@ -90,39 +91,42 @@ require 'includes/header.php';
 <div class="card">
     <div class="card-heading">
         <div>
-            <h3>Add Trusted Tag</h3>
-            <p class="card-caption">Register a known personal tag (AirTag, SmartTag, Tile) so it will not trigger stalking warnings.</p>
+            <h3>Register Known Personal Tag</h3>
+            <span class="card-caption">Whitelist your own AirTag, Galaxy SmartTag, or Tile to prevent false alarms</span>
         </div>
     </div>
-    <form method="POST" class="form-grid">
+    <form method="POST" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-md); align-items: flex-end;">
         <?= csrf_field() ?>
 
-        <div class="form-row">
-            <label for="macInput" class="form-label">Tag MAC Address <span style="color: var(--accent-color, #e06c75);">*</span></label>
+        <div class="field-group" style="margin-bottom:0;">
+            <label for="macInput">Tag Hardware MAC Address *</label>
             <input type="text" id="macInput" name="add_mac" class="mono" placeholder="AA:BB:CC:DD:EE:FF" value="<?= htmlspecialchars($presetMac) ?>" required pattern="^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$" title="Enter a valid 6-byte hex MAC address">
         </div>
 
         <?php if ($trackedOptions): ?>
-            <div class="form-row">
-                <label for="macSelect" class="form-label">Or pick from recently detected tags:</label>
+            <div class="field-group" style="margin-bottom:0;">
+                <label for="macSelect">Quick Pick (Recent Pings)</label>
                 <select id="macSelect" onchange="if(this.value){document.getElementById('macInput').value=this.value;}">
                     <option value="">-- Choose detected tag --</option>
                     <?php foreach ($trackedOptions as $option): ?>
                         <option value="<?= htmlspecialchars($option['mac_address']) ?>" <?= $presetMac === $option['mac_address'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($option['mac_address']) ?> — <?= htmlspecialchars($option['vendor'] ?: 'Unknown') ?> (<?= htmlspecialchars($option['device_type'] ?: 'BLE') ?>)
+                            <?= htmlspecialchars($option['mac_address']) ?> — <?= htmlspecialchars($option['vendor'] ?: 'Unknown') ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
             </div>
         <?php endif; ?>
 
-        <div class="form-row">
-            <label for="friendlyNameInput" class="form-label">Friendly Name (Optional)</label>
-            <input type="text" id="friendlyNameInput" name="friendly_name" placeholder="e.g. My Car Keys, Backpack AirTag, Gym Duffle Tile" maxlength="100">
+        <div class="field-group" style="margin-bottom:0;">
+            <label for="friendlyNameInput">Friendly Label (Optional)</label>
+            <input type="text" id="friendlyNameInput" name="friendly_name" placeholder="e.g. My Gym Bag AirTag, Keychain">
         </div>
 
         <div>
-            <button type="submit" class="primary">+ Add to Whitelist</button>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                Trust This Tag
+            </button>
         </div>
     </form>
 </div>
@@ -130,45 +134,59 @@ require 'includes/header.php';
 <div class="card">
     <div class="card-heading">
         <div>
-            <h3>Currently Whitelisted Tags</h3>
-            <p class="card-caption"><?= count($whitelisted) ?> trusted tag<?= count($whitelisted) === 1 ? '' : 's' ?> protected from threat escalation.</p>
+            <h3>Active Trusted Devices</h3>
+            <span class="card-caption"><?= count($whitelisted) ?> personal tag<?= count($whitelisted) === 1 ? '' : 's' ?> active</span>
         </div>
     </div>
     <?php if (!$whitelisted): ?>
-        <div class="empty-state">
-            <h4>No trusted tags registered yet.</h4>
-            <p>Add your personal tags above to prevent them from triggering stalker warnings.</p>
+        <div style="padding: var(--space-xl); text-align: center; color: var(--color-muted);">
+            <h4>No trusted tags registered yet</h4>
+            <p style="margin-top: 6px;">Add your personal tags above to prevent them from triggering stalker warnings.</p>
         </div>
     <?php else: ?>
-        <div class="card-list">
-            <?php foreach ($whitelisted as $w): ?>
-                <div class="card-list-item status-whitelisted">
-                    <div>
-                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            <?php if (!empty($w['friendly_name'])): ?>
-                                <strong style="font-size: 1.05rem;"><?= htmlspecialchars($w['friendly_name']) ?></strong>
-                            <?php endif; ?>
-                            <span class="device-mac mono" style="font-weight: 600;"><?= htmlspecialchars($w['mac_address']) ?></span>
-                            <span class="badge badge-whitelisted">Safe Whitelist</span>
-                        </div>
-                        <div class="device-meta" style="margin-top: 0.35rem;">
-                            Ecosystem/Type: <?= htmlspecialchars($w['vendor'] ?: 'Known Tag') ?> · <?= htmlspecialchars($w['device_type'] ?: 'BLE') ?>
-                            <?php if ($w['rssi'] !== null): ?> · Last RSSI: <?= htmlspecialchars($w['rssi']) ?> dBm<?php endif; ?>
-                        </div>
-                        <?php if ($w['last_seen']): ?>
-                            <div class="device-meta">Last seen: <?= htmlspecialchars(date('M j, Y H:i:s', strtotime($w['last_seen']))) ?></div>
-                        <?php endif; ?>
-                        <?php if (!empty($w['added_at'])): ?>
-                            <div class="device-meta">Whitelisted on: <?= htmlspecialchars(date('M j, Y H:i', strtotime($w['added_at']))) ?></div>
-                        <?php endif; ?>
-                    </div>
-                    <form method="POST" class="inline-form" onsubmit="return confirm('Remove this tag from your trusted whitelist?');">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="remove_id" value="<?= $w['id'] ?>">
-                        <button type="submit" class="secondary" style="color: #e06c75;">Remove</button>
-                    </form>
-                </div>
-            <?php endforeach; ?>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Accessory / Label</th>
+                        <th>Hardware MAC</th>
+                        <th>Ecosystem</th>
+                        <th>Last Proximity</th>
+                        <th>Registered Date</th>
+                        <th style="text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($whitelisted as $w): ?>
+                        <tr>
+                            <td>
+                                <strong style="color: #ffffff;"><?= htmlspecialchars($w['friendly_name'] ?: 'Personal Tag') ?></strong>
+                            </td>
+                            <td>
+                                <span class="mono" style="color: var(--color-accent); font-weight:600;"><?= htmlspecialchars($w['mac_address']) ?></span>
+                            </td>
+                            <td>
+                                <span class="badge badge-safe"><?= htmlspecialchars($w['vendor'] ?: 'Known BLE') ?></span>
+                            </td>
+                            <td>
+                                <span class="mono"><?= $w['rssi'] !== null ? htmlspecialchars($w['rssi']) . ' dBm' : '—' ?></span>
+                            </td>
+                            <td>
+                                <span style="font-size: var(--text-xs); color: var(--color-muted);"><?= htmlspecialchars(date('M j, Y H:i', strtotime($w['added_at']))) ?></span>
+                            </td>
+                            <td style="text-align: right;">
+                                <form method="POST" style="display:inline;" onsubmit="return confirm('Remove tag from safe whitelist?');">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="remove_id" value="<?= (int)$w['id'] ?>">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        Remove
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
     <?php endif; ?>
 </div>

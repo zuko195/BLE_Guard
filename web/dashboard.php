@@ -76,40 +76,51 @@ require 'includes/header.php';
 ?>
 
 <div class="dashboard-hero">
-    <div>
-        <p class="eyebrow">BLE Guard</p>
+    <div class="hero-title-group">
         <h2>Covert Tracker & Stalker Defense</h2>
-        <p class="hero-subtitle">Real-time counter-surveillance monitoring unauthorized tags and persistent followers.</p>
+        <p class="hero-subtitle">Real-time counter-surveillance monitoring unauthorized tags, separated AirTags, and persistent followers.</p>
     </div>
 </div>
 
 <?php if (!$devices): ?>
     <div class="card">
         <p>No devices registered yet. Your device's API key was shown once at signup —
-        if you missed it, go to <a href="account.php">Account Settings</a> to regenerate one.</p>
+        if you missed it, go to <a href="account.php" style="color: var(--color-accent); font-weight:600;">Account Settings</a> to regenerate one.</p>
     </div>
 <?php else: ?>
 
 <div class="stat-row">
-    <div class="stat-box">
-        <div class="label">Apple FindMy / AirTag</div>
+    <div class="stat-box eco-apple">
+        <div class="label">
+            <span>Apple FindMy / AirTag</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path d="M10 2c1 .5 2 2 2 5"/></svg>
+        </div>
         <div class="value"><?= $countFindMy ?></div>
-        <span class="card-caption">Active in Range</span>
+        <span class="card-caption">Active in Proximity</span>
     </div>
-    <div class="stat-box">
-        <div class="label">Samsung SmartTag</div>
+    <div class="stat-box eco-samsung">
+        <div class="label">
+            <span>Samsung SmartTag</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
         <div class="value"><?= $countSamsung ?></div>
-        <span class="card-caption">Active in Range</span>
+        <span class="card-caption">Active in Proximity</span>
     </div>
-    <div class="stat-box">
-        <div class="label">Tile Trackers</div>
+    <div class="stat-box eco-tile">
+        <div class="label">
+            <span>Tile Trackers</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
         <div class="value"><?= $countTile ?></div>
-        <span class="card-caption">Active in Range</span>
+        <span class="card-caption">Active in Proximity</span>
     </div>
-    <div class="stat-box">
-        <div class="label">Other Covert Tags</div>
-        <div class="value"><?= $countOther ?></div>
-        <span class="card-caption">Active in Range</span>
+    <div class="stat-box eco-threat">
+        <div class="label">
+            <span>Stalker Alerts</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86l-8.6 14.9A2 2 0 0 0 3.42 22h17.16a2 2 0 0 0 1.73-3.24l-8.6-14.9a2 2 0 0 0-3.42 0z"/></svg>
+        </div>
+        <div class="value" style="color: var(--color-error);"><?= count($activeStalkers) ?></div>
+        <span class="card-caption">Requiring Attention</span>
     </div>
 </div>
 
@@ -118,24 +129,56 @@ require 'includes/header.php';
         $stThreat = (int)($stalker['threat_score'] ?? 0);
         $stDisplacement = (float)($stalker['gps_displacement_m'] ?? 0.0);
         $stMac = htmlspecialchars($stalker['mac_address']);
-        $stName = htmlspecialchars($stalker['device_name'] ?? 'Covert Tag');
+        $stName = htmlspecialchars($stalker['device_name'] ?? 'Covert Tracker');
+        $stRssi = (int)($stalker['rssi'] ?? -99);
+        // Estimate proximity zone
+        $proxZone = $stRssi >= -50 ? 'Immediate (<1m)' : ($stRssi >= -65 ? 'Near (1-3m)' : ($stRssi >= -80 ? 'Mid-Range (3-8m)' : 'Distant (>8m)'));
+        $proxPercent = max(5, min(100, 100 - (abs($stRssi) - 30) * 1.4));
     ?>
-    <div class="card stalker-alert-card">
-        <div class="card-heading">
-            <span class="threat-pill threat-high">CRITICAL STALKER DETECTED</span>
-            <span class="threat-pill threat-high">Risk: <?= $stThreat ?>/100</span>
+    <div class="card card-threat">
+        <div class="threat-banner-header">
+            <span class="threat-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4m0 4h.01M10.29 3.86l-8.6 14.9A2 2 0 0 0 3.42 22h17.16a2 2 0 0 0 1.73-3.24l-8.6-14.9a2 2 0 0 0-3.42 0z"/></svg>
+                SUSPICIOUS STALKER DETECTED
+            </span>
+            <span class="badge badge-threat">THREAT LEVEL <?= $stThreat ?>/100</span>
         </div>
-        <div class="stalker-grid">
-            <div><span class="form-label">Identified Device</span><div class="mono" style="font-weight:600;font-size:15px;"><?= $stName ?></div></div>
-            <div><span class="form-label">Identifier (MAC)</span><div class="mono"><?= $stMac ?></div></div>
-            <div><span class="form-label">Sightings</span><div><?= (int)$stalker['sighting_count'] ?> times</div></div>
-            <div><span class="form-label">Followed Distance</span><div><?= $stDisplacement >= 30.0 ? round($stDisplacement) . ' meters co-travel' : 'Continuous Co-Presence' ?></div></div>
-            <div><span class="form-label">Signal Strength</span><div><?= htmlspecialchars($stalker['rssi']) ?> dBm</div></div>
-            <div><span class="form-label">Last Detected</span><div><?= htmlspecialchars($stalker['event_time']) ?></div></div>
+        <div class="telemetry-grid">
+            <div class="telemetry-tile">
+                <span class="label">Identified Device</span>
+                <div class="val"><?= $stName ?> (<?= htmlspecialchars($stalker['tracker_ecosystem'] ?? 'BLE Tag') ?>)</div>
+            </div>
+            <div class="telemetry-tile">
+                <span class="label">Hardware MAC</span>
+                <div class="val mono" style="color: var(--color-accent);"><?= $stMac ?></div>
+            </div>
+            <div class="telemetry-tile">
+                <span class="label">Co-Travel Distance</span>
+                <div class="val"><?= $stDisplacement >= 30.0 ? round($stDisplacement) . ' meters co-travel' : 'Continuous Co-Presence' ?> (<?= (int)$stalker['sighting_count'] ?> pings)</div>
+            </div>
+            <div class="telemetry-tile">
+                <span class="label">Proximity Range</span>
+                <div class="val mono"><?= $proxZone ?> · <?= $stRssi ?> dBm</div>
+            </div>
         </div>
-        <div class="modal-actions" style="margin-top:14px;">
-            <a class="button-link primary" href="map.php?mac=<?= urlencode($stMac) ?>">View on Tactical Map</a>
-            <a class="button-link secondary" href="whitelist.php?add_mac=<?= urlencode($stMac) ?>">Whitelist (Known Personal)</a>
+        
+        <div class="geiger-meter">
+            <span style="font-size:11px; font-weight:700; color:var(--color-muted); text-transform:uppercase;">Signal Proximity</span>
+            <div class="geiger-track">
+                <div class="geiger-fill" style="width: <?= $proxPercent ?>%;"></div>
+            </div>
+            <span class="mono" style="font-size:12px; font-weight:700; color:#fff;"><?= $stRssi ?> dBm</span>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:16px;">
+            <a class="btn btn-primary" href="map.php?mac=<?= urlencode($stMac) ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>
+                Track on Live Radar
+            </a>
+            <a class="btn btn-secondary" href="whitelist.php?add_mac=<?= urlencode($stMac) ?>" style="background:rgba(255,255,255,0.06); border:1px solid var(--color-rule);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                Trust as Personal Device
+            </a>
         </div>
     </div>
     <?php endforeach; ?>

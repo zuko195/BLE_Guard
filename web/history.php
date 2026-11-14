@@ -59,44 +59,57 @@ require 'includes/header.php';
 ?>
 
 <div class="dashboard-hero">
-    <p class="eyebrow">Security History</p>
-    <h2>BLE Detection History</h2>
-    <p class="hero-subtitle">Review detected devices, activity volume, and suspicious activity over time.</p>
+    <div class="hero-title-group">
+        <h2>Threat History & Forensics</h2>
+        <p class="hero-subtitle">Audit longitudinal tracking trends, multi-day surveillance persistence, and suspicious signal volume.</p>
+    </div>
 </div>
 
-<div class="toggle-window">
-    <a href="?window=7"><button class="<?= $window==7 ? '' : 'inactive' ?>">7 Days</button></a>
-    <a href="?window=30"><button class="<?= $window==30 ? '' : 'inactive' ?>">30 Days</button></a>
+<div style="display:flex; gap:10px; margin-bottom:var(--space-lg);">
+    <a href="?window=7" class="btn <?= $window==7 ? 'btn-primary' : '' ?>" style="<?= $window!=7 ? 'background:rgba(255,255,255,0.05); color:var(--color-muted);' : '' ?>">Past 7 Days</a>
+    <a href="?window=30" class="btn <?= $window==30 ? 'btn-primary' : '' ?>" style="<?= $window!=30 ? 'background:rgba(255,255,255,0.05); color:var(--color-muted);' : '' ?>">Past 30 Days</a>
 </div>
 
 <div class="card">
     <div class="card-heading">
         <div>
-            <h3>Devices Seen</h3>
-            <p class="card-caption">All devices observed during the selected window, grouped by MAC address.</p>
+            <h3>Observed Tracking Devices</h3>
+            <span class="card-caption">Aggregated by unique MAC address across the <?= $window ?>-day observation window</span>
         </div>
     </div>
     <?php if (!$hasDeviceData): ?>
-        <div class="empty-state">
+        <div style="padding: var(--space-xl); text-align: center; color: var(--color-muted);">
             <h4>No devices detected</h4>
-            <p>No devices were detected in this time window.</p>
+            <p style="margin-top: 6px;">No BLE targets were recorded in this observation window.</p>
         </div>
     <?php else: ?>
-        <div class="device-list">
-            <?php foreach ($deviceList as $i => $d): ?>
-            <a class="device-item" href="device_timeline.php?mac=<?= urlencode($d['mac_address']) ?>">
-                <div class="device-primary">
-                    <div class="device-mac mono">#<?= $i + 1 ?> <?= htmlspecialchars($d['mac_address']) ?></div>
-                    <div class="device-meta">Vendor: <?= htmlspecialchars($d['vendor'] ?? 'Unknown') ?></div>
-                </div>
-                <div class="device-stats">
-                    <div class="device-stat">
-                        <div class="stat-label">Sightings</div>
-                        <div class="stat-value"><?= htmlspecialchars($d['total_sightings']) ?></div>
-                    </div>
-                </div>
-            </a>
-            <?php endforeach; ?>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Hardware MAC</th>
+                        <th>Ecosystem / Vendor</th>
+                        <th>Cumulative Sightings</th>
+                        <th style="text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($deviceList as $i => $d): ?>
+                        <tr>
+                            <td><span class="mono" style="color:var(--color-muted);"><?= $i + 1 ?></span></td>
+                            <td><span class="mono" style="color:var(--color-accent); font-weight:600;"><?= htmlspecialchars($d['mac_address']) ?></span></td>
+                            <td><span class="badge badge-neutral"><?= htmlspecialchars($d['vendor'] ?? 'Unknown BLE') ?></span></td>
+                            <td><span class="mono" style="color:#ffffff; font-weight:700;"><?= htmlspecialchars($d['total_sightings']) ?> pings</span></td>
+                            <td style="text-align: right;">
+                                <a href="map.php?mac=<?= urlencode($d['mac_address']) ?>" class="btn btn-sm" style="background:rgba(56,189,248,0.1); border-color:rgba(56,189,248,0.3); color:var(--color-accent);">
+                                    Radar Focus
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
     <?php endif; ?>
 </div>
@@ -146,26 +159,45 @@ const chartOpts = {
     maintainAspectRatio: false,
     scales: {
         x: {
-            ticks: { color: '#94a3b8' },
-            grid: { color: '#1e293b' }
+            ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
         },
         y: {
             ticks: {
                 color: '#94a3b8',
+                font: { family: 'JetBrains Mono', size: 11 },
                 precision: 0,
                 callback: value => Number(value).toFixed(0)
             },
-            grid: { color: '#1e293b' },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
             beginAtZero: true
         }
     },
-    plugins: { legend: { labels: { color: '#e2e8f0' } } }
+    plugins: {
+        legend: {
+            labels: { color: '#f8fafc', font: { family: 'Plus Jakarta Sans', weight: 600 } }
+        }
+    }
 };
 
 <?php if ($hasSightingsData): ?>
 new Chart(document.getElementById('sightingsChart'), {
     type: 'line',
-    data: { labels: <?= $sightingsLabels ?>, datasets: [{ label: 'Sightings', data: <?= $sightingsData ?>, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', fill: true }] },
+    data: {
+        labels: <?= $sightingsLabels ?>,
+        datasets: [{
+            label: 'Daily Sightings',
+            data: <?= $sightingsData ?>,
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+            borderWidth: 2.5,
+            tension: 0.4,
+            fill: true,
+            pointBackgroundColor: '#38bdf8',
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }]
+    },
     options: chartOpts
 });
 <?php endif; ?>
@@ -173,7 +205,15 @@ new Chart(document.getElementById('sightingsChart'), {
 <?php if ($hasSuspiciousData): ?>
 new Chart(document.getElementById('suspiciousChart'), {
     type: 'bar',
-    data: { labels: <?= $suspiciousLabels ?>, datasets: [{ label: 'Suspicious Flags', data: <?= $suspiciousData ?>, backgroundColor: '#ef4444' }] },
+    data: {
+        labels: <?= $suspiciousLabels ?>,
+        datasets: [{
+            label: 'Suspicious Stalker Flags',
+            data: <?= $suspiciousData ?>,
+            backgroundColor: '#f43f5e',
+            borderRadius: 6
+        }]
+    },
     options: chartOpts
 });
 <?php endif; ?>

@@ -1,21 +1,95 @@
-/* Hallmark · theme: rim · rim: night · posture: committed · display: switzer · outlier: geist-mono · accent: warm-45 · v2.0.0 */
-/* Hallmark · critique: Design tokens for Rim utilitarian dark theme with hairlines and Geist Mono measurements. */
+/* BLE Guard · Impeccable Design System v3.0 · Titanium Slate & Cyan Tactical */
 :root {
   color-scheme: dark;
-  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
-  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.074rem;
-  --text-display-s: 1.44rem; --text-display: 1.728rem; --text-section: 1.2rem; --text-title: 1rem; --text-lead: 1rem;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
-  --color-error: oklch(72% 0.15 27); --color-success: oklch(76% 0.13 150);
-  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
-  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
-  --color-paper: oklch(9% 0.008 75); --color-paper-2: oklch(12.5% 0.009 75); --color-paper-3: oklch(6.5% 0.007 75);
-  --color-ink: oklch(94% 0.010 80); --color-ink-2: oklch(84% 0.011 80); --color-muted: oklch(68% 0.012 80); --color-muted-2: oklch(50% 0.010 80);
-  --color-rule: oklch(25% 0.010 78); --color-rule-2: oklch(16% 0.009 78);
-  --color-accent: oklch(72% 0.17 45); --color-accent-ink: oklch(10% 0.02 45); --color-accent-2: oklch(74% 0.12 250); --color-focus: oklch(78% 0.15 45);
-  --font-display: "Switzer", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
-  --font-outlier: "Geist Mono", ui-monospace, monospace;
-  --radius-card: 0; --radius-pill: 0; --rule-hair: 1px; --shadow-card: none;
-  --tracking-display: -0.04em; --display-weight: 500;
+
+  /* Spacing Scale (8pt grid) */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --space-4xl: 96px;
+
+  /* Typography Scale */
+  --font-display: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-outlier: var(--font-mono);
+
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.375rem;    /* 22px */
+  --text-2xl: 1.75rem;    /* 28px */
+  --text-3xl: 2.25rem;    /* 36px */
+
+  --tracking-tight: -0.025em;
+  --tracking-display: -0.035em;
+  --display-weight: 700;
+
+  /* Color Palette - Titanium Dark Slate & Tactical Luminescence */
+  --color-paper: #080c14;           /* Deep canvas */
+  --color-paper-2: #0f172a;         /* Secondary slate */
+  --color-paper-3: #162036;         /* Elevated surface */
+  --color-card: rgba(15, 23, 42, 0.72);
+  --color-card-hover: rgba(22, 32, 54, 0.82);
+
+  /* Borders & Hairlines */
+  --color-rule: rgba(255, 255, 255, 0.08);
+  --color-rule-subtle: rgba(255, 255, 255, 0.04);
+  --color-rule-active: rgba(56, 189, 248, 0.4);
+
+  /* Typography Colors (High Contrast WCAG AAA/AA) */
+  --color-ink: #f8fafc;             /* Primary text */
+  --color-ink-2: #cbd5e1;           /* Secondary text */
+  --color-muted: #94a3b8;           /* Muted text */
+  --color-muted-2: #64748b;         /* Subtle labels */
+
+  /* Functional Tactical Accents */
+  --color-accent: #38bdf8;          /* Electric Cyan / Radar */
+  --color-accent-glow: rgba(56, 189, 248, 0.25);
+  --color-success: #10b981;         /* Whitelist / Clear */
+  --color-success-glow: rgba(16, 185, 129, 0.25);
+  --color-warning: #f59e0b;         /* Caution */
+  --color-error: #f43f5e;           /* Threat / Stalker Alert */
+  --color-error-glow: rgba(244, 63, 94, 0.3);
+  --color-focus: #38bdf8;
+
+  /* Ecosystem Accents */
+  --color-apple: #38bdf8;
+  --color-samsung: #10b981;
+  --color-tile: #f59e0b;
+  --color-google: #a855f7;
+
+  /* Geometry & Glassmorphism */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --backdrop-blur: blur(16px);
+
+  /* Depth & Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--color-rule);
+  --shadow-card-hover: 0 16px 40px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--color-rule-active);
+  --shadow-glow: 0 0 25px -5px var(--color-accent-glow);
+  --shadow-threat: 0 0 35px -5px var(--color-error-glow);
+
+  /* Physics Transitions */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-normal: 250ms;
+  --dur-slow: 450ms;
+
+  /* Layout */
+  --container: 1400px;
+  --sidebar-width: 240px;
+  --header-height: 64px;
 }

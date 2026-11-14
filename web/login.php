@@ -51,25 +51,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="auth-box">
-        <h2>🛡 BLE Guard Login</h2>
+        <div style="display:flex; justify-content:center; margin-bottom:16px;">
+            <div class="brand-logo" style="width:48px; height:48px;">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    <path d="M9 12l2 2 4-4"/>
+                </svg>
+            </div>
+        </div>
+        <h2>BLE Guard Console</h2>
         <?php if ($error): ?><div class="alert error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
         <form method="POST">
             <?= csrf_field() ?>
             <div class="field-group">
                 <label for="username">Username</label>
-                <input id="username" type="text" name="username" placeholder="Username" required>
+                <input id="username" type="text" name="username" placeholder="Username" required autocomplete="username">
             </div>
             <div class="field-group">
                 <label for="password">Password</label>
-                <input id="password" type="password" name="password" placeholder="Password" required>
+                <input id="password" type="password" name="password" placeholder="Password" required autocomplete="current-password">
             </div>
-            <div class="form-actions">
-                <button type="submit">Login</button>
+            <div class="form-actions" style="margin-top:20px;">
+                <button type="submit" class="btn btn-primary" style="width:100%;">Authenticate</button>
             </div>
         </form>
         <div class="auth-footer">
-            <p>No account? <a href="register.php">Register</a></p>
-            <p><a href="forgot_password.php">Forgot password?</a></p>
+            <p>Need access? <a href="register.php" style="color:var(--color-accent); font-weight:600;">Create account</a></p>
+            <p style="margin-top:6px;"><a href="forgot_password.php" style="color:var(--color-muted);">Forgot password?</a></p>
         </div>
     </div>
 </body>

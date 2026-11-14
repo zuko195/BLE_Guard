@@ -92,55 +92,68 @@ require 'includes/header.php';
 ?>
 
 <div class="map-page-header">
-    <div>
-        <a class="back-link" href="dashboard.php">← Back to Dashboard</a>
-        <p class="eyebrow">Tactical Visualization</p>
-        <h2>Tactical Radar & Trajectory Map</h2>
-        <p class="hero-subtitle">Approximate proximity view around the ESP32 reference point. BLE markers are not GPS coordinates.</p>
+    <div class="hero-title-group">
+        <a class="back-link" href="dashboard.php">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            Dashboard Overview
+        </a>
+        <h2>Tactical Proximity Radar</h2>
+        <p class="hero-subtitle">Real-time BLE signal field around the ESP32 sniffer. Proximity bands derived from live RSSI attenuation.</p>
     </div>
 </div>
 
 <div class="map-layout">
     <section class="card radar-card">
-        <div class="card-heading">
+        <div class="card-heading" style="width: 100%;">
             <div>
-                <h3>Live Proximity Radar</h3>
-                <span class="card-caption"><?= count($tracked) ?> active BLE device<?= count($tracked) === 1 ? '' : 's' ?> · last 5 minutes</span>
+                <h3>Signal Interceptor HUD</h3>
+                <span class="card-caption"><?= count($tracked) ?> active BLE target<?= count($tracked) === 1 ? '' : 's' ?> in range (last 5m)</span>
             </div>
-            <span class="radar-legend"><i class="legend-dot legend-esp"></i> ESP32</span>
-        </div>
-
-        <div class="radar-stage" id="radarStage" aria-label="BLE proximity radar">
-            <div class="radar-grid radar-ring ring-1"></div>
-            <div class="radar-grid radar-ring ring-2"></div>
-            <div class="radar-grid radar-ring ring-3"></div>
-            <div class="radar-grid radar-cross cross-x"></div>
-            <div class="radar-grid radar-cross cross-y"></div>
-            <div class="radar-sweep"></div>
-
-            <?php foreach ($devicePayload as $index => $event): ?>
-                <button type="button"
-                        class="radar-device-marker status-<?= htmlspecialchars($event['status']) ?>"
-                        data-device-index="<?= $index ?>"
-                        title="<?= htmlspecialchars($event['mac']) ?>"
-                        aria-label="Select <?= htmlspecialchars($event['mac']) ?>">
-                    <span class="marker-pulse"></span>
-                    <span class="marker-core"></span>
-                    <span class="marker-label mono"><?= htmlspecialchars($event['mac']) ?></span>
-                </button>
-            <?php endforeach; ?>
-
-            <div class="esp32-center">
-                <div class="esp32-pulse"></div>
-                <div class="esp32-core">ESP</div>
-                <span>ESP32 / GPS</span>
+            <div class="radar-legend">
+                <span class="legend-item"><i class="legend-dot legend-esp"></i> ESP32 Center</span>
+                <span class="legend-item"><i class="legend-dot legend-threat"></i> Stalker Threat</span>
+                <span class="legend-item"><i class="legend-dot legend-tracked"></i> Active Tag</span>
             </div>
         </div>
 
-        <div class="radar-scale">
-            <span>Near</span><span>Approximate</span><span>Far</span>
+        <div class="radar-housing">
+            <div class="radar-stage" id="radarStage" aria-label="BLE proximity radar">
+                <div class="radar-ring ring-1"></div>
+                <div class="radar-ring ring-2"></div>
+                <div class="radar-ring ring-3"></div>
+                <div class="radar-ring ring-4"></div>
+                <div class="radar-cross cross-x"></div>
+                <div class="radar-cross cross-y"></div>
+                
+                <span class="radar-distance-label dist-1">&lt;1m</span>
+                <span class="radar-distance-label dist-2">1-3m</span>
+                <span class="radar-distance-label dist-3">3-8m</span>
+
+                <div class="radar-sweep"></div>
+
+                <?php foreach ($devicePayload as $index => $event): ?>
+                    <button type="button"
+                            class="radar-device-marker status-<?= htmlspecialchars($event['status']) ?>"
+                            data-device-index="<?= $index ?>"
+                            title="<?= htmlspecialchars($event['mac']) ?>"
+                            aria-label="Select <?= htmlspecialchars($event['mac']) ?>">
+                        <span class="marker-core"></span>
+                        <span class="marker-label mono"><?= htmlspecialchars($event['mac']) ?></span>
+                    </button>
+                <?php endforeach; ?>
+
+                <div class="esp32-center">
+                    <div class="esp32-core">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg>
+                    </div>
+                    <span class="esp32-label">ESP32</span>
+                </div>
+            </div>
         </div>
-        <p class="radar-note">Marker placement is a visual RSSI estimate only. RSSI can vary with walls, body position, antenna orientation, and radio interference.</p>
+
+        <p class="radar-note" style="color: var(--color-muted-2); font-size: var(--text-xs); text-align: center; margin-top: var(--space-xs);">
+            Concentric zones reflect RSSI path-loss gradient. Physical distance can vary with obstacles, body shielding, and orientation.
+        </p>
     </section>
 
     <aside class="map-side-column">
