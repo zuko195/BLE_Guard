@@ -249,21 +249,14 @@ require 'includes/header.php';
     <?php endif; ?>
 </div>
 
-<div class="card map-shortcut-card">
-    <div>
-        <p class="eyebrow">Tactical View</p>
-        <h3>BLE Radar Map</h3>
-        <p>Visualize current detections around the ESP32/GPS reference point.</p>
-    </div>
-    <a class="button-link primary" href="map.php">Open Radar Map</a>
-</div>
-
 <div id="deviceModal" class="device-modal" aria-hidden="true">
     <div class="device-modal-backdrop" data-close-modal></div>
     <div class="device-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deviceModalTitle">
         <button type="button" class="device-modal-close" data-close-modal aria-label="Close device details">×</button>
-        <p class="eyebrow">Detection Details</p>
-        <h3 id="deviceModalTitle" class="mono">BLE Device</h3>
+        <div style="margin-bottom:12px;">
+            <span class="badge badge-tracking" style="margin-bottom:6px;">TELEMETRY INSPECTION</span>
+            <h3 id="deviceModalTitle" class="mono" style="font-size:var(--text-lg); color:#ffffff;">BLE Device</h3>
+        </div>
         <div class="modal-detail-grid">
             <div><span>Vendor</span><strong id="modalVendor">Unknown</strong></div>
             <div><span>Type</span><strong id="modalType">Unknown</strong></div>
@@ -275,8 +268,8 @@ require 'includes/header.php';
             <div><span>Last Seen</span><strong id="modalLastSeen">Not available</strong></div>
         </div>
         <div class="modal-actions">
-            <a id="modalMapLink" class="button-link primary" href="map.php">View on Map</a>
-            <button type="button" class="secondary" data-close-modal>Close</button>
+            <a id="modalMapLink" class="btn btn-primary" href="map.php" style="flex:1;">Focus on Tactical Radar</a>
+            <button type="button" class="btn" data-close-modal>Close</button>
         </div>
     </div>
 </div>

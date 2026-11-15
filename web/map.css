@@ -7,9 +7,15 @@ body.modal-open {
 
 .map-layout {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr 400px;
   gap: var(--space-xl);
   align-items: start;
+}
+
+.map-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
 }
 
 @media (max-width: 1100px) {

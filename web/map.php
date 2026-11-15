@@ -177,8 +177,11 @@ require 'includes/header.php';
                     <div><span>Sightings</span><strong id="selectedSightings"><?= htmlspecialchars($selected['sighting_count'] ?? 'Not available') ?></strong></div>
                     <div><span>Last Seen</span><strong id="selectedLastSeen"><?= htmlspecialchars($selected['event_time'] ?? 'Not available') ?></strong></div>
                 </div>
-                <div style="margin-top: 1rem;">
-                    <a id="selectedWhitelistBtn" href="whitelist.php<?= !empty($selected['mac_address']) ? '?add_mac=' . urlencode($selected['mac_address']) : '' ?>" class="secondary" style="display: block; text-align: center; text-decoration: none; padding: 0.5rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color, #333);">+ Whitelist This Tag</a>
+                <div style="margin-top: var(--space-md);">
+                    <a id="selectedWhitelistBtn" href="whitelist.php<?= !empty($selected['mac_address']) ? '?add_mac=' . urlencode($selected['mac_address']) : '' ?>" class="btn btn-primary" style="width: 100%;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                        Trust & Whitelist Tag
+                    </a>
                 </div>
             </div>
         </section>

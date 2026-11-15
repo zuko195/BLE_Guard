@@ -657,3 +657,179 @@ label {
     padding: var(--space-md);
   }
 }
+
+/* --------------------------------------------------------------------------
+   10. MODAL DIALOGS & OVERLAYS (Hide until clicked)
+   -------------------------------------------------------------------------- */
+.device-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.device-modal.is-open {
+  display: flex !important;
+}
+
+.device-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 13, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+.device-modal-dialog {
+  position: relative;
+  z-index: 10;
+  width: min(540px, calc(100% - 32px));
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--color-rule-active);
+  border-radius: var(--radius-card);
+  padding: var(--space-xl);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), var(--shadow-glow);
+}
+
+.device-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  color: var(--color-muted);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-smooth);
+}
+
+.device-modal-close:hover {
+  background: rgba(244, 63, 94, 0.2);
+  color: #ffffff;
+  border-color: rgba(244, 63, 94, 0.4);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: var(--space-lg);
+}
+
+/* --------------------------------------------------------------------------
+   11. DATA TILES & DETAIL GRIDS (Fixes text smashing on Dashboard & Radar)
+   -------------------------------------------------------------------------- */
+.modal-detail-grid,
+.map-detail-grid,
+.gps-coordinates {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: var(--space-md) 0;
+}
+
+.modal-detail-grid > div,
+.map-detail-grid > div,
+.gps-coordinates > div {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.modal-detail-grid span,
+.map-detail-grid span,
+.gps-coordinates span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.modal-detail-grid strong,
+.map-detail-grid strong,
+.gps-coordinates strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  word-break: break-all;
+}
+
+/* GPS Status Row */
+.gps-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gps-status-row.is-fixed {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+
+.gps-status-row.is-missing {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-rule);
+  color: var(--color-muted);
+}
+
+.gps-status-row .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Selected Device Header */
+.selected-mac {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-bottom: 2px;
+}
+
+.selected-type {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 12px;
+}
+
+/* Empty State */
+.empty-state {
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.empty-state h4 {
+  font-size: var(--text-md);
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.empty-state p {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
