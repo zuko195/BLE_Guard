@@ -13,10 +13,10 @@ $currentPage = basename($_SERVER['PHP_SELF']);
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="tokens.css">
-    <link rel="stylesheet" href="base.css">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="map.css">
+    <link rel="stylesheet" href="tokens.css?v=<?= @filemtime(__DIR__ . '/../tokens.css') ?: 3 ?>">
+    <link rel="stylesheet" href="base.css?v=<?= @filemtime(__DIR__ . '/../base.css') ?: 3 ?>">
+    <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/../style.css') ?: 3 ?>">
+    <link rel="stylesheet" href="map.css?v=<?= @filemtime(__DIR__ . '/../map.css') ?: 3 ?>">
 </head>
 <body>
 <div class="app-layout">
