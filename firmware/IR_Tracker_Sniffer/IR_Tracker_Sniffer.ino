@@ -82,8 +82,8 @@ struct TrackedTracker {
 // DIRECT BACKUP / HARDCODED CREDENTIALS (EDIT FREELY HERE)
 // =============================================================================
 // Fallback Wi-Fi Credentials (Used if no portal setup, or as primary fallback):
-const char* DEFAULT_WIFI_SSID     = ".";
-const char* DEFAULT_WIFI_PASSWORD = "1234....";
+const char* DEFAULT_WIFI_SSID     = "";
+const char* DEFAULT_WIFI_PASSWORD = "";
 
 // BLE Guard Device API Key (from register.php / dashboard):
 const char* DEFAULT_API_KEY       = "";  // e.g. "YOUR_GENERATED_API_KEY"
@@ -234,6 +234,83 @@ String getCleanModelName(const String &raw) {
   if (raw.indexOf("Beacon") >= 0) return "iBeacon";
   if (raw.length() > 14) return raw.substring(0, 14);
   return raw;
+}
+
+// =============================================================================
+// STRUCTURED SERIAL MONITOR HUD & EVENT BANNERS
+// =============================================================================
+void printSerialRadarHUD() {
+  int totalActive = 0;
+  for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
+    if (trackers[i].used) totalActive++;
+  }
+
+  Serial.println();
+  Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
+  Serial.printf( "| BLE GUARD RADAR MONITOR | Active Trackers: %-2d | Status: %-40s |\n",
+                 totalActive, (WiFi.status() == WL_CONNECTED) ? "ONLINE (Cloud Stream)" : "STANDALONE (Radio Radar)");
+  Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
+  Serial.println("| # | MAC ADDRESS       | ECOSYSTEM       | RSSI       | PINGS    | THREAT    | STALKER STATUS     |");
+  Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
+
+  if (totalActive == 0) {
+    Serial.println("|   | (Scanning for covert BLE tracking tags in vicinity...)                                       |");
+  } else {
+    for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
+      if (!trackers[i].used) continue;
+      TrackedTracker &t = trackers[i];
+      String cleanName = getCleanModelName(t.modelName);
+      if (cleanName.length() > 15) cleanName = cleanName.substring(0, 15);
+
+      const char* stalkerStr = t.flagged ? "!! FLAGGED !!" : (t.isSeparated ? "YES (Alert!)" : "NO (Safe)");
+
+      Serial.printf("| %-1d | %-17s | %-15s |  %4d dBm  | %-8d | %3d / 100 | %-18s |\n",
+                    i, t.mac.c_str(), cleanName.c_str(), (int)round(t.rssiEMA),
+                    t.sightingCount, t.threatScore, stalkerStr);
+    }
+  }
+  Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
+}
+
+void printMacHopAlert(const String &oldMac, const String &newMac, const String &model, float rssiDiff, int sightings) {
+  Serial.println();
+  Serial.println("+==================================================================================================+");
+  Serial.println("| [CORRELATOR] MAC-HOPPING IDENTITY ROTATION DETECTED                                              |");
+  Serial.printf( "|   Previous MAC  : %-78s |\n", oldMac.c_str());
+  Serial.printf( "|   New MAC       : %-78s |\n", newMac.c_str());
+  Serial.printf( "|   Ecosystem     : %-78s |\n", model.c_str());
+  Serial.printf( "|   Signal Delta  : %4.1f dBm (Spatial Proximity Match Confirmed)%-34s |\n", rssiDiff, "");
+  Serial.printf( "|   Resolution    : History & Continuity Preserved (%-3d Total Pings)%-30s |\n", sightings, "");
+  Serial.println("+==================================================================================================+");
+  Serial.println();
+}
+
+void printStalkerThreatAlert(const TrackedTracker &t) {
+  Serial.println();
+  Serial.println("+==================================================================================================+");
+  Serial.println("| [ALERT] SUSPICIOUS TRACKER FLAGGED (Potential Stalker)                                           |");
+  Serial.printf( "|   Target MAC    : %-78s |\n", t.mac.c_str());
+  Serial.printf( "|   Model Name    : %-78s |\n", t.modelName.c_str());
+  Serial.printf( "|   Threat Score  : %3d / 100 (HIGH RISK COUNTER-SURVEILLANCE EVENT)%-30s |\n", t.threatScore, "");
+  Serial.printf( "|   Separated     : %-78s |\n", t.isSeparated ? "YES (Separated from owner >15 minutes)" : "NO");
+  Serial.printf( "|   Current Signal: %4d dBm (Immediate Proximity < 2m)%-43s |\n", (int)round(t.rssiEMA), "");
+  Serial.println("+==================================================================================================+");
+  Serial.println();
+}
+
+void printNetworkStatusBox(bool connected, const String &ssid, const String &ip) {
+  Serial.println();
+  Serial.println("+--------------------------------------------------------------------------------------------------+");
+  if (connected) {
+    Serial.printf( "| [NETWORK] Wi-Fi Connected: %-69s |\n", ssid.c_str());
+    Serial.printf( "|   Local IP      : %-78s |\n", ip.c_str());
+    Serial.printf( "|   Server URL    : %-78s |\n", activeBackendUrl.c_str());
+  } else {
+    Serial.println("| [NETWORK] Wi-Fi Status: Standalone Mode (Local OLED & Radio Radar Active)                        |");
+    Serial.printf( "|   Target Server : %-78s |\n", activeBackendUrl.c_str());
+  }
+  Serial.println("+--------------------------------------------------------------------------------------------------+");
+  Serial.println();
 }
 
 // =============================================================================
@@ -416,19 +493,8 @@ void processSerialCommands() {
       startSetupPortal();
     } else if (line.equalsIgnoreCase("STATUS") || line.equalsIgnoreCase("CONFIG")) {
       loadConfigFromNVS();
-    } else if (line.equalsIgnoreCase("LIST") || line.equalsIgnoreCase("DUMP") || line.equalsIgnoreCase("SCAN") || line.equalsIgnoreCase("TRACKERS")) {
-      Serial.println("\n=== CURRENT ACTIVE BLE TRACKERS ===");
-      int count = 0;
-      for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
-        if (trackers[i].used) {
-          count++;
-          Serial.printf("  [%d] MAC: %s | Model: %s | RSSI: %d dBm | Pings: %d | Threat: %d/100 | Stalker: %s\n",
-            i, trackers[i].mac.c_str(), trackers[i].modelName.c_str(), trackers[i].lastRSSI,
-            trackers[i].sightingCount, trackers[i].threatScore, trackers[i].isSeparated ? "YES" : "NO");
-        }
-      }
-      if (count == 0) Serial.println("  (No active covert tags in range right now)");
-      Serial.println("===================================\n");
+    } else if (line.equalsIgnoreCase("LIST") || line.equalsIgnoreCase("DUMP") || line.equalsIgnoreCase("SCAN") || line.equalsIgnoreCase("TRACKERS") || line.equalsIgnoreCase("TABLE") || line.equalsIgnoreCase("HUD")) {
+      printSerialRadarHUD();
     }
   }
 }
@@ -769,9 +835,9 @@ int findOrCreateTrackerSlot(const String &mac, const TrackerIdentification &id, 
       if ((now - trackers[i].lastSeen) <= 45000 && (now - trackers[i].lastSeen) >= 2000) {
         float rssiDiff = fabs(trackers[i].rssiEMA - (float)currentRSSI);
         if (rssiDiff <= 5.5f) {
-          Serial.printf("[CORRELATOR] MAC-Hop detected: %s -> %s (Ecosystem %d, RSSI diff %.1f dB)\n",
-                        trackers[i].mac.c_str(), mac.c_str(), id.ecosystem, rssiDiff);
+          String oldMac = trackers[i].mac;
           trackers[i].mac = mac; // Adopt new rotating MAC, preserving history!
+          printMacHopAlert(oldMac, mac, getCleanModelName(id.modelName), rssiDiff, trackers[i].sightingCount + 1);
           return i;
         }
       }
@@ -872,12 +938,11 @@ class TrackerScanCallbacks : public NimBLEScanCallbacks {
     t.sightingCount++;
     unsigned long now = millis();
 
-    // Print live ping every 1.5s per device to Serial HUD
-    static unsigned long lastLogTime = 0;
-    if (now - lastLogTime >= 1500) {
-      lastLogTime = now;
-      Serial.printf("[BLE] Heard %s (%s) | RSSI: %d dBm | Stalker: %s | Sighted: %d times\n",
-        mac.c_str(), id.modelName.c_str(), sampleRSSI, id.isSeparated ? "YES" : "NO", t.sightingCount);
+    // Periodically display structured Radar Table HUD every 2.5 seconds
+    static unsigned long lastTableLogTime = 0;
+    if (now - lastTableLogTime >= 2500) {
+      lastTableLogTime = now;
+      printSerialRadarHUD();
     }
 
     // Smoothed RSSI & Gradient for Geiger Hunter Mode
@@ -924,8 +989,7 @@ class TrackerScanCallbacks : public NimBLEScanCallbacks {
 
     if (!t.flagged && duration >= thresh && t.sightingCount >= minSight) {
       t.flagged = true;
-      Serial.printf("[ALERT] Flagged Tracker %s (%s) Threat: %d/100\n",
-                    t.mac.c_str(), t.modelName.c_str(), t.threatScore);
+      printStalkerThreatAlert(t);
 
       // Report high-priority threat event to Cloudflare tunnel / backend
       sendEventToBackend(t, "suspicious");
@@ -1510,9 +1574,8 @@ void checkWiFiBackgroundStatus() {
 
   if (isConn && !wifiConnected) {
     wifiConnected = true;
-    Serial.println("\n[WIFI] Connected to network!");
     String currentSSID = WiFi.SSID().length() > 0 ? WiFi.SSID() : String(DEFAULT_WIFI_SSID);
-    Serial.printf("[WIFI] Network: %s | IP: %s\n", currentSSID.c_str(), WiFi.localIP().toString().c_str());
+    printNetworkStatusBox(true, currentSSID, WiFi.localIP().toString());
 
     // Flash the clean "WIFI CONNECTED" pop-up on the OLED
     display.clearDisplay();
@@ -1529,7 +1592,7 @@ void checkWiFiBackgroundStatus() {
   } else if (!isConn && wifiConnected) {
     // Was connected, but just lost connection!
     wifiConnected = false;
-    Serial.println("\n[WIFI] Wi-Fi Disconnected -> Switching to Offline Mode");
+    printNetworkStatusBox(false, "", "");
 
     // Flash the clean "NOT CONNECTED / Offline Mode" pop-up on the OLED
     display.clearDisplay();
@@ -1546,16 +1609,14 @@ void checkWiFiBackgroundStatus() {
     delay(1500);
     renderCurrentScreen();
   } else if (!isConn) {
-    // Attempt non-blocking background reconnect every 15 seconds if offline:
-    // First checks the network entered in the system (via setup portal / NVS),
-    // and falls back to DEFAULT_WIFI_SSID if none is saved.
-    if (millis() - lastWifiRetry > 15000) {
+    // Attempt non-blocking background reconnect every 30 seconds if offline
+    if (millis() - lastWifiRetry > 30000) {
       lastWifiRetry = millis();
       String systemSSID = WiFi.SSID();
-      if (systemSSID.length() > 0) {
+      if (systemSSID.length() > 1) {
         Serial.printf("[WIFI] Reconnecting to system-saved network: '%s'...\n", systemSSID.c_str());
         WiFi.begin(); // Reconnects using the credentials stored in the system
-      } else if (strlen(DEFAULT_WIFI_SSID) > 0) {
+      } else if (strlen(DEFAULT_WIFI_SSID) > 1) {
         Serial.printf("[WIFI] Reconnecting to fallback network: '%s'...\n", DEFAULT_WIFI_SSID);
         WiFi.begin(DEFAULT_WIFI_SSID, DEFAULT_WIFI_PASSWORD);
       }
