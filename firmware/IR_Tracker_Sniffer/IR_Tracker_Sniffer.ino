@@ -36,7 +36,8 @@
 // Forward declarations & Core Types for Arduino prototype generator
 enum TrackerEcosystem {
   ECO_NONE = 0,
-  ECO_APPLE_FINDMY,       // AirTag, JioTag Air, AmazonBasics, Chipolo, Pebblebee, Eufy
+  ECO_APPLE_FINDMY,       // AirTag, AmazonBasics, Chipolo, Pebblebee, Eufy
+  ECO_JIOTAG,             // JioTag Air
   ECO_SAMSUNG_SMARTTAG,   // Galaxy SmartTag, SmartTag2 (0xFD5A / 0xFD59)
   ECO_TILE,               // Tile Mate/Pro/Slim (0xFEED / 0xFEEC)
   ECO_GOOGLE_FMDN,        // Google Find My Device Network (0xFE2C)
@@ -223,9 +224,9 @@ unsigned long lastHunterDisplayUpdate = 0;
 bool hunterIsCloser = true;
 
 String getCleanModelName(const String &raw) {
+  if (raw.indexOf("Jio") >= 0) return "JioTag Air";
   if (raw.indexOf("AirTag") >= 0 || raw.indexOf("FindMy") >= 0) return "Apple AirTag";
   if (raw.indexOf("SmartTag") >= 0) return "Samsung Tag";
-  if (raw.indexOf("Jio") >= 0) return "JioTag Air";
   if (raw.indexOf("Amazon") >= 0) return "AmazonBasics";
   if (raw.indexOf("Tile") >= 0) return "Tile Tracker";
   if (raw.indexOf("Chipolo") >= 0) return "Chipolo Spot";
@@ -415,6 +416,19 @@ void processSerialCommands() {
       startSetupPortal();
     } else if (line.equalsIgnoreCase("STATUS") || line.equalsIgnoreCase("CONFIG")) {
       loadConfigFromNVS();
+    } else if (line.equalsIgnoreCase("LIST") || line.equalsIgnoreCase("DUMP") || line.equalsIgnoreCase("SCAN") || line.equalsIgnoreCase("TRACKERS")) {
+      Serial.println("\n=== CURRENT ACTIVE BLE TRACKERS ===");
+      int count = 0;
+      for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
+        if (trackers[i].used) {
+          count++;
+          Serial.printf("  [%d] MAC: %s | Model: %s | RSSI: %d dBm | Pings: %d | Threat: %d/100 | Stalker: %s\n",
+            i, trackers[i].mac.c_str(), trackers[i].modelName.c_str(), trackers[i].lastRSSI,
+            trackers[i].sightingCount, trackers[i].threatScore, trackers[i].isSeparated ? "YES" : "NO");
+        }
+      }
+      if (count == 0) Serial.println("  (No active covert tags in range right now)");
+      Serial.println("===================================\n");
     }
   }
 }
@@ -560,12 +574,21 @@ bool classifyCovertTracker(const NimBLEAdvertisedDevice* dev, TrackerIdentificat
           // Differentiate model name if broadcasted or identify as AirTag/Find My tag
           String devName = dev->haveName() ? String(dev->getName().c_str()) : "";
           devName.toLowerCase();
-          if (devName.indexOf("jio") >= 0) id.modelName = "JioTag Air";
-          else if (devName.indexOf("amazon") >= 0) id.modelName = "AmazonBasics Tag";
-          else if (devName.indexOf("chipolo") >= 0) id.modelName = "Chipolo Spot";
-          else if (devName.indexOf("pebblebee") >= 0) id.modelName = "Pebblebee Clip";
-          else if (devName.indexOf("eufy") >= 0) id.modelName = "Eufy SmartTrack";
-          else id.modelName = "Apple FindMy/AirTag";
+          std::string devAddr = dev->getAddress().toString();
+          if (devName.indexOf("jio") >= 0 || devAddr.rfind("4b:c7:b5", 0) == 0 || devAddr.rfind("4B:C7:B5", 0) == 0) {
+            id.ecosystem = ECO_JIOTAG;
+            id.modelName = "JioTag Air";
+          } else if (devName.indexOf("amazon") >= 0) {
+            id.modelName = "AmazonBasics Tag";
+          } else if (devName.indexOf("chipolo") >= 0) {
+            id.modelName = "Chipolo Spot";
+          } else if (devName.indexOf("pebblebee") >= 0) {
+            id.modelName = "Pebblebee Clip";
+          } else if (devName.indexOf("eufy") >= 0) {
+            id.modelName = "Eufy SmartTrack";
+          } else {
+            id.modelName = "Apple AirTag";
+          }
 
           return true;
         }
@@ -661,9 +684,9 @@ bool classifyCovertTracker(const NimBLEAdvertisedDevice* dev, TrackerIdentificat
       id.modelName = "Samsung SmartTag";
       return true;
     }
-    if (lname.indexOf("jiotag") >= 0) {
-      id.ecosystem = ECO_APPLE_FINDMY;
-      id.modelName = "JioTag";
+    if (lname.indexOf("jiotag") >= 0 || lname.indexOf("jio") >= 0) {
+      id.ecosystem = ECO_JIOTAG;
+      id.modelName = "JioTag Air";
       return true;
     }
     if (lname.indexOf("tile") >= 0) {
@@ -694,18 +717,18 @@ int calculateThreatScore(const TrackedTracker &t) {
 
   // Signal 1: Tracking Duration (0 to 30 points)
   unsigned long duration = t.lastSeen - t.firstSeen;
-  unsigned long threshold = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_SAMSUNG_SMARTTAG)
+  unsigned long threshold = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG || t.ecosystem == ECO_SAMSUNG_SMARTTAG)
                             ? FINDMY_PERSISTENCE_MS : GENERIC_PERSISTENCE_MS;
   int durationPts = (int)min(30.0, 30.0 * duration / threshold);
   score += durationPts;
 
   // Signal 2: Sighting Frequency (0 to 15 points)
-  int minSight = (t.ecosystem == ECO_APPLE_FINDMY) ? FINDMY_MIN_SIGHTINGS : GENERIC_MIN_SIGHTINGS;
+  int minSight = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG) ? FINDMY_MIN_SIGHTINGS : GENERIC_MIN_SIGHTINGS;
   int sightPts = (int)min(15.0, 15.0 * t.sightingCount / (minSight * 2));
   score += sightPts;
 
   // Signal 3: Ecosystem Threat Weight (25 points)
-  if (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_SAMSUNG_SMARTTAG) {
+  if (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG || t.ecosystem == ECO_SAMSUNG_SMARTTAG) {
     score += 25;
   } else if (t.ecosystem == ECO_TILE || t.ecosystem == ECO_GOOGLE_FMDN) {
     score += 20;
@@ -849,6 +872,14 @@ class TrackerScanCallbacks : public NimBLEScanCallbacks {
     t.sightingCount++;
     unsigned long now = millis();
 
+    // Print live ping every 1.5s per device to Serial HUD
+    static unsigned long lastLogTime = 0;
+    if (now - lastLogTime >= 1500) {
+      lastLogTime = now;
+      Serial.printf("[BLE] Heard %s (%s) | RSSI: %d dBm | Stalker: %s | Sighted: %d times\n",
+        mac.c_str(), id.modelName.c_str(), sampleRSSI, id.isSeparated ? "YES" : "NO", t.sightingCount);
+    }
+
     // Smoothed RSSI & Gradient for Geiger Hunter Mode
     t.prevRssiEMA = t.rssiEMA;
     t.rssiEMA = (RSSI_EMA_ALPHA * (float)sampleRSSI) + ((1.0f - RSSI_EMA_ALPHA) * t.rssiEMA);
@@ -887,9 +918,9 @@ class TrackerScanCallbacks : public NimBLEScanCallbacks {
 
     t.threatScore = calculateThreatScore(t);
     unsigned long duration = t.lastSeen - t.firstSeen;
-    unsigned long thresh = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_SAMSUNG_SMARTTAG)
+    unsigned long thresh = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG || t.ecosystem == ECO_SAMSUNG_SMARTTAG)
                            ? FINDMY_PERSISTENCE_MS : GENERIC_PERSISTENCE_MS;
-    int minSight = (t.ecosystem == ECO_APPLE_FINDMY) ? FINDMY_MIN_SIGHTINGS : GENERIC_MIN_SIGHTINGS;
+    int minSight = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG) ? FINDMY_MIN_SIGHTINGS : GENERIC_MIN_SIGHTINGS;
 
     if (!t.flagged && duration >= thresh && t.sightingCount >= minSight) {
       t.flagged = true;
@@ -923,15 +954,15 @@ void drawProgressBar(int x, int y, int width, int height, float percent) {
 
 // Screen 1: Radar Summary
 void renderRadarSummary() {
-  int total = 0, findMy = 0, smartTag = 0, tile = 0, other = 0, suspicious = 0;
+  int total = 0, airTag = 0, jioTag = 0, smartTag = 0, other = 0, suspicious = 0;
   for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
     if (!trackers[i].used) continue;
     total++;
     if (trackers[i].flagged) suspicious++;
-    if (trackers[i].ecosystem == ECO_APPLE_FINDMY) findMy++;
+    if (trackers[i].ecosystem == ECO_JIOTAG) jioTag++;
+    else if (trackers[i].ecosystem == ECO_APPLE_FINDMY) airTag++;
     else if (trackers[i].ecosystem == ECO_SAMSUNG_SMARTTAG) smartTag++;
-    else if (trackers[i].ecosystem == ECO_TILE) tile++;
-    else other++; // Google FMDN, iBeacon, Eddystone, and generic covert tags
+    else other++; // Tile, Google FMDN, iBeacon, Eddystone, and generic covert tags
   }
 
   display.clearDisplay();
@@ -954,11 +985,11 @@ void renderRadarSummary() {
 
   // Ecosystem Counters
   display.setCursor(0, 13);
-  display.printf("AirTag/FindMy : %d", findMy);
+  display.printf("Apple AirTag  : %d", airTag);
   display.setCursor(0, 23);
-  display.printf("Samsung Tag   : %d", smartTag);
+  display.printf("JioTag Air    : %d", jioTag);
   display.setCursor(0, 33);
-  display.printf("Tile Tracker  : %d", tile);
+  display.printf("Samsung Tag   : %d", smartTag);
   display.setCursor(0, 43);
   display.printf("Other Trackers: %d", other);
 
@@ -1142,8 +1173,8 @@ void renderGeigerHunter() {
   else if (t.rssiGradient < -0.6f) trendStr = "AWAY v";
   display.printf("%d dBm | %s", (int)round(t.rssiEMA), trendStr);
 
-  // Line 4: Proximity Barometer Gauge
-  float normSignal = (t.rssiEMA - (-90.0f)) / ((-38.0f) - (-90.0f));
+  // Line 4: Proximity Barometer Gauge (Calibrated: -88 dBm empty to -48 dBm 100% full)
+  float normSignal = (t.rssiEMA - (-88.0f)) / ((-48.0f) - (-88.0f));
   if (normSignal < 0.0f) normSignal = 0.0f;
   if (normSignal > 1.0f) normSignal = 1.0f;
   drawProgressBar(0, 34, 128, 12, normSignal);
@@ -1213,17 +1244,24 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
   String activeUrl = (activeBackendUrl.length() >= 8) ? activeBackendUrl : String(BACKEND_BASE_URL);
   if (activeUrl.length() < 8) return;
 
-  WiFiClientSecure client;
-  client.setInsecure(); // Tunnel/Testing mode - bypass CA cert validation
-
   HTTPClient http;
   http.setConnectTimeout(2500);
   http.setTimeout(4000);
 
   String url = activeUrl + "/api_log_event.php";
+  bool beginOk = false;
+  WiFiClient plainClient;
+  WiFiClientSecure secureClient;
 
-  if (!http.begin(client, url)) {
-    Serial.println("[BACKEND] HTTPS initialization failed");
+  if (url.startsWith("https://")) {
+    secureClient.setInsecure();
+    beginOk = http.begin(secureClient, url);
+  } else {
+    beginOk = http.begin(plainClient, url);
+  }
+
+  if (!beginOk) {
+    Serial.println("[BACKEND] HTTP connection init failed");
     return;
   }
 
@@ -1234,14 +1272,15 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
   doc["api_key"] = key;
   doc["mac_address"] = t.mac;
   doc["device_name"] = t.modelName;
-  doc["vendor"] = (t.ecosystem == ECO_APPLE_FINDMY) ? "Apple" :
+  doc["vendor"] = (t.ecosystem == ECO_JIOTAG) ? "JioTag" :
+                  (t.ecosystem == ECO_APPLE_FINDMY) ? "Apple" :
                   (t.ecosystem == ECO_SAMSUNG_SMARTTAG) ? "Samsung" :
                   (t.ecosystem == ECO_TILE) ? "Tile" :
                   (t.ecosystem == ECO_GOOGLE_FMDN) ? "Google" : "Beacon";
   doc["device_type"] = "Tracker";
   doc["rssi"] = t.lastRSSI;
   doc["sighting_count"] = t.sightingCount;
-  doc["is_apple_findmy"] = (t.ecosystem == ECO_APPLE_FINDMY);
+  doc["is_apple_findmy"] = (t.ecosystem == ECO_APPLE_FINDMY || t.ecosystem == ECO_JIOTAG);
   doc["threat_score"] = t.threatScore;
   doc["status"] = status;
 
