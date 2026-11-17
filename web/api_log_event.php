@@ -57,11 +57,10 @@ if ($stmt->fetchColumn() >= 60) {
 
 // Determine Covert Tracker Ecosystem & Kinematic parameters
 $ecosystem = 'Other';
-if (!empty($input['tracker_ecosystem'])) {
+if (!empty($input['tracker_ecosystem']) && in_array($input['tracker_ecosystem'], ['Apple FindMy', 'Samsung SmartTag', 'Tile', 'Google FMDN', 'Beacon', 'Other'], true)) {
     $ecosystem = $input['tracker_ecosystem'];
-} elseif (($input['vendor'] ?? '') === 'JioTag' || (!empty($input['device_name']) && stripos($input['device_name'], 'jio') !== false)) {
-    $ecosystem = 'JioTag';
-} elseif (!empty($input['is_apple_findmy']) || ($input['vendor'] ?? '') === 'Apple') {
+} elseif (!empty($input['is_apple_findmy']) || ($input['vendor'] ?? '') === 'Apple' || ($input['vendor'] ?? '') === 'JioTag' || (!empty($input['device_name']) && stripos($input['device_name'], 'jio') !== false)) {
+    // JioTag runs on Apple Find My network, satisfying MySQL schema ENUM
     $ecosystem = 'Apple FindMy';
 } elseif (($input['vendor'] ?? '') === 'Samsung') {
     $ecosystem = 'Samsung SmartTag';
