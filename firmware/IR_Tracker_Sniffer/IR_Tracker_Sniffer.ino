@@ -82,8 +82,8 @@ struct TrackedTracker {
 // DIRECT BACKUP / HARDCODED CREDENTIALS (EDIT FREELY HERE)
 // =============================================================================
 // Fallback Wi-Fi Credentials (Used if no portal setup, or as primary fallback):
-const char* DEFAULT_WIFI_SSID     = "";
-const char* DEFAULT_WIFI_PASSWORD = "";
+const char* DEFAULT_WIFI_SSID     = ".";
+const char* DEFAULT_WIFI_PASSWORD = "1234....";
 
 // BLE Guard Device API Key (from register.php / dashboard):
 const char* DEFAULT_API_KEY       = "";  // e.g. "YOUR_GENERATED_API_KEY"
@@ -222,6 +222,8 @@ int targetTrackerIndex = -1;  // Selected tracker slot for Detail / Geiger Hunte
 int listBrowseIndex = 0;
 unsigned long lastHunterDisplayUpdate = 0;
 bool hunterIsCloser = true;
+bool backendReachable = true;
+int lastBackendHttpCode = 200;
 
 String getCleanModelName(const String &raw) {
   if (raw.indexOf("Jio") >= 0) return "JioTag Air";
@@ -239,16 +241,37 @@ String getCleanModelName(const String &raw) {
 // =============================================================================
 // STRUCTURED SERIAL MONITOR HUD & EVENT BANNERS
 // =============================================================================
+void printTunnelWarning(const String &url, int code) {
+  Serial.println();
+  Serial.println("+==================================================================================================+");
+  Serial.println("| [WARNING] TUNNEL / BACKEND SERVER OFFLINE                                                        |");
+  Serial.printf( "|   Target URL    : %-78s |\n", url.c_str());
+  String errStr = (code < 0) ? "HTTP -1 (Connection Failed / Tunnel Down)" : ("HTTP " + String(code));
+  Serial.printf( "|   HTTP Error    : %-78s |\n", errStr.c_str());
+  Serial.println("|   State         : Retaining local radar logs. Reconnect tunnel to resume cloud sync.             |");
+  Serial.println("+==================================================================================================+");
+  Serial.println();
+}
+
 void printSerialRadarHUD() {
   int totalActive = 0;
   for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
     if (trackers[i].used) totalActive++;
   }
 
+  const char* netStatusStr = "STANDALONE (Radio Radar)";
+  if (WiFi.status() == WL_CONNECTED) {
+    if (backendReachable) {
+      netStatusStr = "ONLINE (Cloud Stream)";
+    } else {
+      netStatusStr = "TUNNEL DOWN !! (Local Mode)";
+    }
+  }
+
   Serial.println();
   Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
   Serial.printf( "| BLE GUARD RADAR MONITOR | Active Trackers: %-2d | Status: %-40s |\n",
-                 totalActive, (WiFi.status() == WL_CONNECTED) ? "ONLINE (Cloud Stream)" : "STANDALONE (Radio Radar)");
+                 totalActive, netStatusStr);
   Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
   Serial.println("| # | MAC ADDRESS       | ECOSYSTEM       | RSSI       | PINGS    | THREAT    | STALKER STATUS     |");
   Serial.println("+---+-------------------+-----------------+------------+----------+-----------+--------------------+");
@@ -489,6 +512,23 @@ void processSerialCommands() {
       prefs.putString("api_key", activeApiKey);
       prefs.end();
       Serial.printf("[SUCCESS] API Key updated to: %s\n", activeApiKey.c_str());
+    } else if (line.startsWith("WIFI:") || line.startsWith("SSID:")) {
+      int colonIdx = line.indexOf(':');
+      String params = line.substring(colonIdx + 1);
+      params.trim();
+      int commaIdx = params.indexOf(',');
+      if (commaIdx > 0) {
+        String ssid = params.substring(0, commaIdx);
+        String pass = params.substring(commaIdx + 1);
+        ssid.trim();
+        pass.trim();
+        Serial.printf("[WIFI] Connecting to SSID: '%s'...\n", ssid.c_str());
+        WiFi.disconnect(true);
+        delay(200);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+      } else {
+        Serial.println("[ERROR] Format: WIFI:YourSSID,YourPassword");
+      }
     } else if (line.equalsIgnoreCase("SETUP") || line.equalsIgnoreCase("PORTAL")) {
       startSetupPortal();
     } else if (line.equalsIgnoreCase("STATUS") || line.equalsIgnoreCase("CONFIG")) {
@@ -1062,6 +1102,8 @@ void renderRadarSummary() {
   display.setCursor(0, 56);
   if (suspicious > 0) {
     display.printf("!! SUSPICIOUS: %d !!", suspicious);
+  } else if (WiFi.status() == WL_CONNECTED && !backendReachable) {
+    display.print("WARN: TUNNEL OFFLINE");
   } else {
     display.print("Status: ALL CLEAR");
   }
@@ -1309,8 +1351,8 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
   if (activeUrl.length() < 8) return;
 
   HTTPClient http;
-  http.setConnectTimeout(2500);
-  http.setTimeout(4000);
+  http.setConnectTimeout(800);
+  http.setTimeout(1200);
 
   String url = activeUrl + "/api_log_event.php";
   bool beginOk = false;
@@ -1326,6 +1368,10 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
 
   if (!beginOk) {
     Serial.println("[BACKEND] HTTP connection init failed");
+    if (backendReachable) {
+      backendReachable = false;
+      printTunnelWarning(activeUrl, -1);
+    }
     return;
   }
 
@@ -1341,6 +1387,10 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
                   (t.ecosystem == ECO_SAMSUNG_SMARTTAG) ? "Samsung" :
                   (t.ecosystem == ECO_TILE) ? "Tile" :
                   (t.ecosystem == ECO_GOOGLE_FMDN) ? "Google" : "Beacon";
+  doc["tracker_ecosystem"] = (t.ecosystem == ECO_JIOTAG || t.ecosystem == ECO_APPLE_FINDMY) ? "Apple FindMy" :
+                             (t.ecosystem == ECO_SAMSUNG_SMARTTAG) ? "Samsung SmartTag" :
+                             (t.ecosystem == ECO_TILE) ? "Tile" :
+                             (t.ecosystem == ECO_GOOGLE_FMDN) ? "Google FMDN" : "Other";
   doc["device_type"] = "Tracker";
   doc["rssi"] = t.lastRSSI;
   doc["sighting_count"] = t.sightingCount;
@@ -1365,6 +1415,16 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
 
   int httpCode = http.POST(json);
   Serial.printf("[BACKEND] POST %s -> HTTP %d\n", status.c_str(), httpCode);
+  if (httpCode == 200) {
+    backendReachable = true;
+    lastBackendHttpCode = 200;
+  } else {
+    if (backendReachable) {
+      backendReachable = false;
+      lastBackendHttpCode = httpCode;
+      printTunnelWarning(activeUrl, httpCode);
+    }
+  }
   http.end();
 }
 
@@ -1613,10 +1673,10 @@ void checkWiFiBackgroundStatus() {
     if (millis() - lastWifiRetry > 30000) {
       lastWifiRetry = millis();
       String systemSSID = WiFi.SSID();
-      if (systemSSID.length() > 1) {
+      if (systemSSID.length() > 0) {
         Serial.printf("[WIFI] Reconnecting to system-saved network: '%s'...\n", systemSSID.c_str());
         WiFi.begin(); // Reconnects using the credentials stored in the system
-      } else if (strlen(DEFAULT_WIFI_SSID) > 1) {
+      } else if (strlen(DEFAULT_WIFI_SSID) > 0) {
         Serial.printf("[WIFI] Reconnecting to fallback network: '%s'...\n", DEFAULT_WIFI_SSID);
         WiFi.begin(DEFAULT_WIFI_SSID, DEFAULT_WIFI_PASSWORD);
       }
@@ -1658,9 +1718,28 @@ void loop() {
   // 6. Expire inactive trackers (>5 minutes without sighting)
   expireOldTrackers();
 
+  // 6b. Stream one active tracker per scan cycle (staggered to prevent watchdog resets)
+  static int nextStreamSlot = 0;
+  static unsigned long lastBackendStreamTime = 0;
+  if (millis() - lastBackendStreamTime >= 2500) {
+    lastBackendStreamTime = millis();
+    if (WiFi.status() == WL_CONNECTED && (activeApiKey.length() > 0 || strlen(DEFAULT_API_KEY) > 0)) {
+      for (int step = 0; step < MAX_TRACKED_TRACKERS; step++) {
+        int idx = (nextStreamSlot + step) % MAX_TRACKED_TRACKERS;
+        if (trackers[idx].used && !isWhitelisted(trackers[idx].mac)) {
+          sendEventToBackend(trackers[idx], trackers[idx].flagged ? "suspicious" : "tracking");
+          nextStreamSlot = (idx + 1) % MAX_TRACKED_TRACKERS;
+          break; // Send ONE tracker per cycle, yielding CPU back to FreeRTOS!
+        }
+      }
+    }
+  }
+
   // 7. Update OLED Framebuffer
   renderCurrentScreen();
 
   // 8. Process button events post-render
   processButtonEvents();
+
+  yield(); // Feed FreeRTOS Task Watchdog
 }
