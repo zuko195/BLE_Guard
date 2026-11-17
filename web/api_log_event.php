@@ -59,6 +59,8 @@ if ($stmt->fetchColumn() >= 60) {
 $ecosystem = 'Other';
 if (!empty($input['tracker_ecosystem'])) {
     $ecosystem = $input['tracker_ecosystem'];
+} elseif (($input['vendor'] ?? '') === 'JioTag' || (!empty($input['device_name']) && stripos($input['device_name'], 'jio') !== false)) {
+    $ecosystem = 'JioTag';
 } elseif (!empty($input['is_apple_findmy']) || ($input['vendor'] ?? '') === 'Apple') {
     $ecosystem = 'Apple FindMy';
 } elseif (($input['vendor'] ?? '') === 'Samsung') {

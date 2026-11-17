@@ -45,6 +45,7 @@ if ($deviceIds) {
 
     // Calculate ecosystem breakdowns & active stalkers
     $countFindMy = 0;
+    $countJioTag = 0;
     $countSamsung = 0;
     $countTile = 0;
     $countOther = 0;
@@ -56,7 +57,9 @@ if ($deviceIds) {
         $name = strtolower($item['device_name'] ?? '');
         $threat = (int)($item['threat_score'] ?? 0);
 
-        if ($eco === 'Apple FindMy' || !empty($item['is_apple_findmy']) || strpos($vendor, 'apple') !== false || strpos($name, 'airtag') !== false) {
+        if ($eco === 'JioTag' || strpos($vendor, 'jio') !== false || strpos($name, 'jio') !== false) {
+            $countJioTag++;
+        } elseif ($eco === 'Apple FindMy' || !empty($item['is_apple_findmy']) || strpos($vendor, 'apple') !== false || strpos($name, 'airtag') !== false) {
             $countFindMy++;
         } elseif ($eco === 'Samsung SmartTag' || strpos($vendor, 'samsung') !== false || strpos($name, 'smarttag') !== false) {
             $countSamsung++;
@@ -92,10 +95,18 @@ require 'includes/header.php';
 <div class="stat-row">
     <div class="stat-box eco-apple">
         <div class="label">
-            <span>Apple FindMy / AirTag</span>
+            <span>Apple AirTag</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path d="M10 2c1 .5 2 2 2 5"/></svg>
         </div>
         <div class="value"><?= $countFindMy ?></div>
+        <span class="card-caption">Active in Proximity</span>
+    </div>
+    <div class="stat-box eco-jio" style="border-left: 3px solid #06b6d4;">
+        <div class="label">
+            <span>JioTag Air</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 14.83 4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
+        </div>
+        <div class="value"><?= $countJioTag ?></div>
         <span class="card-caption">Active in Proximity</span>
     </div>
     <div class="stat-box eco-samsung">
@@ -104,14 +115,6 @@ require 'includes/header.php';
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
         </div>
         <div class="value"><?= $countSamsung ?></div>
-        <span class="card-caption">Active in Proximity</span>
-    </div>
-    <div class="stat-box eco-tile">
-        <div class="label">
-            <span>Tile Trackers</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3"/></svg>
-        </div>
-        <div class="value"><?= $countTile ?></div>
         <span class="card-caption">Active in Proximity</span>
     </div>
     <div class="stat-box eco-threat">
