@@ -288,13 +288,91 @@ require 'correlate.php';
 $insights = getCorrelationInsights($pdo, $deviceIds);
 if ($insights):
 ?>
-<div class="card card-secondary">
-    <h3>🔎 Correlation Insights</h3>
-    <?php foreach ($insights as $insight):
-        $color = $insight['severity'] === 'high' ? 'var(--danger)' : 'var(--warn)';
-    ?>
-    <p style="color:<?= $color ?>;">⚠ <?= htmlspecialchars($insight['message']) ?></p>
-    <?php endforeach; ?>
+<div class="card card-correlation">
+    <div class="card-heading" style="width: 100%;">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div class="correlation-header-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/><circle cx="12" cy="12" r="4"/></svg>
+            </div>
+            <div>
+                <h3>Attack Correlation & Escalation Insights</h3>
+                <span class="card-caption">Cross-signal heuristic analysis · Multi-sighting threat trajectory tracking</span>
+            </div>
+        </div>
+        <span class="badge <?= count($insights) > 0 ? 'badge-suspicious' : 'badge-safe' ?>">
+            <?= count($insights) ?> Active Pattern<?= count($insights) === 1 ? '' : 's' ?> Detected
+        </span>
+    </div>
+
+    <div class="correlation-list">
+        <?php foreach ($insights as $item): ?>
+            <?php if (($item['type'] ?? '') === 'escalation'): ?>
+                <div class="correlation-item severity-<?= htmlspecialchars($item['severity']) ?>">
+                    <div class="corr-badge-col">
+                        <span class="threat-pill <?= $item['severity'] === 'high' ? 'threat-high' : 'threat-medium' ?>">
+                            <?= $item['severity'] === 'high' ? 'CRITICAL ESCALATION' : 'ELEVATING RISK' ?>
+                        </span>
+                        <span class="corr-delta-pill">+<?= (int)$item['delta'] ?> PTS SURGE</span>
+                    </div>
+
+                    <div class="corr-main-col">
+                        <div class="corr-title-row">
+                            <span class="corr-mac mono"><?= htmlspecialchars($item['mac']) ?></span>
+                            <span class="corr-meta"><?= htmlspecialchars($item['name']) ?> · <?= htmlspecialchars($item['ecosystem']) ?></span>
+                        </div>
+                        <div class="corr-description">
+                            Threat score accelerated from <strong><?= (int)$item['min_score'] ?></strong> to <strong><?= (int)$item['max_score'] ?></strong> (+<?= (int)$item['delta'] ?> pts) across <?= (int)$item['event_count'] ?> recorded sightings. Repeated co-presence indicates active tracking target.
+                        </div>
+                        <div class="corr-meter-bar">
+                            <div class="corr-meter-fill" style="width: <?= min(100, max(15, (int)$item['max_score'])) ?>%; background: <?= $item['severity'] === 'high' ? 'var(--color-error)' : 'var(--color-warn)' ?>;"></div>
+                        </div>
+                    </div>
+
+                    <div class="corr-score-col">
+                        <div class="corr-score-box">
+                            <span class="corr-score-label">BASELINE</span>
+                            <span class="corr-score-val mono"><?= (int)$item['min_score'] ?></span>
+                        </div>
+                        <div class="corr-arrow">➔</div>
+                        <div class="corr-score-box highlight">
+                            <span class="corr-score-label">CURRENT</span>
+                            <span class="corr-score-val mono" style="color: <?= $item['severity'] === 'high' ? '#f87171' : '#fbbf24' ?>;"><?= (int)$item['max_score'] ?></span>
+                        </div>
+                    </div>
+
+                    <div class="corr-actions-col">
+                        <a class="device-action-link" href="map.php?mac=<?= urlencode($item['mac']) ?>" title="Track on Live Radar">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>
+                            Radar
+                        </a>
+                        <a class="device-action-link" href="whitelist.php?add_mac=<?= urlencode($item['mac']) ?>" style="background:rgba(255,255,255,0.06); border-color:var(--color-rule); color:var(--color-muted);" title="Trust as Personal Device">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                            Trust
+                        </a>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="correlation-item severity-high">
+                    <div class="corr-badge-col">
+                        <span class="threat-pill threat-high">COORDINATED CO-TRAVEL</span>
+                    </div>
+                    <div class="corr-main-col">
+                        <div class="corr-title-row">
+                            <span class="corr-mac mono"><?= htmlspecialchars($item['mac_a']) ?></span>
+                            <span style="color:var(--color-muted); font-size:12px;">+</span>
+                            <span class="corr-mac mono"><?= htmlspecialchars($item['mac_b']) ?></span>
+                        </div>
+                        <div class="corr-description">
+                            <?= htmlspecialchars($item['message']) ?>
+                        </div>
+                    </div>
+                    <div class="corr-actions-col">
+                        <a class="device-action-link" href="map.php?mac=<?= urlencode($item['mac_a']) ?>">Radar</a>
+                    </div>
+                </div>
+            <?php endif; ?>
+        <?php endforeach; ?>
+    </div>
 </div>
 <?php endif; ?>
 
