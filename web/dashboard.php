@@ -232,7 +232,7 @@ require 'includes/header.php';
                     <div class="device-stats">
                         <div class="device-stat">
                             <span class="stat-label">RSSI</span>
-                            <span class="stat-value"><?= htmlspecialchars($d['rssi']) ?></span>
+                            <span class="stat-value"><?= htmlspecialchars($d['rssi']) ?> dBm</span>
                         </div>
                         <div class="device-stat">
                             <span class="stat-label">Threat</span>
@@ -242,6 +242,12 @@ require 'includes/header.php';
                             <span class="stat-label">Status</span>
                             <span class="badge <?= $statusClass ?>"><?= htmlspecialchars($statusText) ?></span>
                         </div>
+                    </div>
+                    <div class="device-actions">
+                        <a class="device-action-link" href="map.php?mac=<?= urlencode($d['mac_address']) ?>" onclick="event.stopPropagation();" title="Track on Tactical Radar">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>
+                            Radar
+                        </a>
                     </div>
                     <?php if (!empty($d['event_time'])): ?>
                         <div class="device-time"><?= htmlspecialchars($d['event_time']) ?></div>

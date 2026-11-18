@@ -88,6 +88,24 @@ foreach ($tracked as $event) {
     ];
 }
 
+// Live AJAX Telemetry Poller Endpoint for auto-refresh without page reloads
+if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'success' => true,
+        'devices' => $devicePayload,
+        'count' => count($tracked),
+        'timestamp' => date('Y-m-d H:i:s'),
+        'gps' => [
+            'has_fix' => ($gpsLat !== null && $gpsLng !== null),
+            'lat' => $gpsLat,
+            'lng' => $gpsLng,
+            'time' => $gpsEvent['event_time'] ?? null
+        ]
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    exit;
+}
+
 require 'includes/header.php';
 ?>
 
@@ -107,12 +125,13 @@ require 'includes/header.php';
         <div class="card-heading" style="width: 100%;">
             <div>
                 <h3>Signal Interceptor HUD</h3>
-                <span class="card-caption"><?= count($tracked) ?> active BLE target<?= count($tracked) === 1 ? '' : 's' ?> in range (last 5m)</span>
+                <span class="card-caption" id="radarActiveCount"><?= count($tracked) ?> active BLE target<?= count($tracked) === 1 ? '' : 's' ?> in range (last 5m)</span>
             </div>
             <div class="radar-legend">
                 <span class="legend-item"><i class="legend-dot legend-esp"></i> ESP32 Center</span>
                 <span class="legend-item"><i class="legend-dot legend-threat"></i> Stalker Threat</span>
                 <span class="legend-item"><i class="legend-dot legend-tracked"></i> Active Tag</span>
+                <span class="legend-item" style="color:var(--color-accent); font-weight:700;"><span class="live-dot-pulse"></span> LIVE RADAR</span>
             </div>
         </div>
 
@@ -130,17 +149,6 @@ require 'includes/header.php';
                 <span class="radar-distance-label dist-3">3-8m</span>
 
                 <div class="radar-sweep"></div>
-
-                <?php foreach ($devicePayload as $index => $event): ?>
-                    <button type="button"
-                            class="radar-device-marker status-<?= htmlspecialchars($event['status']) ?>"
-                            data-device-index="<?= $index ?>"
-                            title="<?= htmlspecialchars($event['mac']) ?>"
-                            aria-label="Select <?= htmlspecialchars($event['mac']) ?>">
-                        <span class="marker-core"></span>
-                        <span class="marker-label mono"><?= htmlspecialchars($event['mac']) ?></span>
-                    </button>
-                <?php endforeach; ?>
 
                 <div class="esp32-center">
                     <div class="esp32-core">
@@ -214,105 +222,277 @@ require 'includes/header.php';
             <span class="card-caption">Select a device to focus the radar</span>
         </div>
     </div>
-    <?php if (!$devicePayload): ?>
-        <div class="empty-state">
-            <h4>No active BLE detections</h4>
-            <p>No non-whitelisted BLE events have been reported in the last 5 minutes.</p>
-        </div>
-    <?php else: ?>
-        <div class="map-device-table">
-            <?php foreach ($devicePayload as $index => $event):
-                $statusText = $event['status'] === 'suspicious' ? 'Suspicious' : ($event['status'] === 'whitelisted' ? 'Whitelisted' : 'Normal');
-                $statusClass = $event['status'] === 'suspicious' ? 'badge-suspicious' : ($event['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
-            ?>
-                <button type="button" class="map-device-row" data-device-index="<?= $index ?>">
-                    <span class="map-row-main">
-                        <span class="mono"><?= htmlspecialchars($event['mac']) ?></span>
-                        <small><?= htmlspecialchars($event['vendor'] ?: 'Unknown vendor') ?> · <?= htmlspecialchars($event['type'] ?: 'Unknown type') ?></small>
-                    </span>
-                    <span class="map-row-rssi"><?= $event['rssi'] !== null ? htmlspecialchars((string)$event['rssi']) . ' dBm' : '—' ?></span>
-                    <span class="badge <?= $statusClass ?>"><?= $statusText ?></span>
-                </button>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+    <div id="mapDeviceListContainer">
+        <?php if (!$devicePayload): ?>
+            <div class="empty-state">
+                <h4>No active BLE detections</h4>
+                <p>No non-whitelisted BLE events have been reported in the last 5 minutes.</p>
+            </div>
+        <?php else: ?>
+            <div class="map-device-table">
+                <?php foreach ($devicePayload as $index => $event):
+                    $statusText = $event['status'] === 'suspicious' ? 'Suspicious' : ($event['status'] === 'whitelisted' ? 'Whitelisted' : 'Normal');
+                    $statusClass = $event['status'] === 'suspicious' ? 'badge-suspicious' : ($event['status'] === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
+                ?>
+                    <button type="button" class="map-device-row" data-mac="<?= htmlspecialchars($event['mac']) ?>">
+                        <span class="map-row-main">
+                            <span class="mono"><?= htmlspecialchars($event['mac']) ?></span>
+                            <small><?= htmlspecialchars($event['vendor'] ?: 'Unknown vendor') ?> · <?= htmlspecialchars($event['type'] ?: 'Unknown type') ?></small>
+                        </span>
+                        <span class="map-row-rssi"><?= $event['rssi'] !== null ? htmlspecialchars((string)$event['rssi']) . ' dBm' : '—' ?></span>
+                        <span class="badge <?= $statusClass ?>"><?= $statusText ?></span>
+                    </button>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
 </section>
 
 <script>
-const radarDevices = <?= json_encode($devicePayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-const initialSelectedMac = <?= json_encode($selectedMac) ?>;
+let radarDevices = <?= json_encode($devicePayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+let selectedMac = <?= json_encode($selectedMac ?: ($devicePayload[0]['mac'] ?? '')) ?>;
 
 (function () {
-    const markers = document.querySelectorAll('.radar-device-marker');
-    const rows = document.querySelectorAll('.map-device-row');
+    const stage = document.getElementById('radarStage');
     const selectedBadge = document.getElementById('selectedBadge');
     const selectedEmpty = document.getElementById('selectedEmpty');
     const selectedDetails = document.getElementById('selectedDetails');
+    const activeCountCaption = document.getElementById('radarActiveCount');
+    const deviceListContainer = document.getElementById('mapDeviceListContainer');
 
     function proximityFromRssi(rssi) {
         const value = Number(rssi);
         if (!Number.isFinite(value)) return 'Not available';
-        if (value >= -55) return 'Very near';
-        if (value >= -70) return 'Nearby';
-        if (value >= -85) return 'Moderate';
-        return 'Far';
+        if (value >= -50) return 'Immediate (<1m)';
+        if (value >= -68) return 'Nearby (1-3m)';
+        if (value >= -82) return 'Mid-Range (3-8m)';
+        return 'Distant (>8m)';
+    }
+
+    // Precise concentric ring radius based on RF path-loss & radar rings
+    function calculateRadarRadius(rssi) {
+        if (!Number.isFinite(rssi)) return 31.0;
+        if (rssi >= -50) {
+            // Ring 1 (<1m): spans 6.0% to 12.5%
+            const norm = Math.max(0, Math.min(1, (-35 - rssi) / 15.0));
+            return 6.0 + norm * 6.5;
+        }
+        if (rssi >= -68) {
+            // Ring 2 (1-3m Near / Nearby): spans 12.5% to 25.0%
+            const norm = Math.max(0, Math.min(1, (-50 - rssi) / 18.0));
+            return 12.5 + norm * 12.5;
+        }
+        if (rssi >= -82) {
+            // Ring 3 (3-8m Mid-Range): spans 25.0% to 37.5%
+            const norm = Math.max(0, Math.min(1, (-68 - rssi) / 14.0));
+            return 25.0 + norm * 12.5;
+        }
+        // Ring 4 (>8m Distant): spans 37.5% to 46.5%
+        const norm = Math.max(0, Math.min(1, (-82 - rssi) / 18.0));
+        return 37.5 + norm * 9.0;
+    }
+
+    // Stable azimuth bearing calculated from MAC bytes
+    function getDeviceAngle(device, index) {
+        if (device && device.mac) {
+            let hash = 0;
+            for (let i = 0; i < device.mac.length; i++) {
+                hash = ((hash << 5) - hash) + device.mac.charCodeAt(i);
+                hash |= 0;
+            }
+            const deg = Math.abs(hash) % 360;
+            return deg * Math.PI / 180;
+        }
+        return ((index * 137.508) % 360) * Math.PI / 180;
     }
 
     function markerPosition(index, device) {
-        const angle = ((index * 137.508) % 360) * Math.PI / 180;
+        const angle = getDeviceAngle(device, index);
         const rssi = Number(device.rssi);
-        let radius = 35;
-        if (Number.isFinite(rssi)) {
-            radius = Math.max(18, Math.min(43, 86 + rssi * 0.62));
-        }
+        const radius = calculateRadarRadius(rssi);
         return {
             x: 50 + Math.cos(angle) * radius,
             y: 50 + Math.sin(angle) * radius
         };
     }
 
-    markers.forEach((marker, index) => {
-        const position = markerPosition(index, radarDevices[index]);
-        marker.style.left = position.x + '%';
-        marker.style.top = position.y + '%';
-    });
+    function renderRadarMarkers() {
+        stage.querySelectorAll('.radar-device-marker').forEach(el => el.remove());
 
-    function selectDevice(index) {
-        const device = radarDevices[index];
-        if (!device) return;
+        radarDevices.forEach((device, index) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'radar-device-marker status-' + (device.status || 'tracking') + (device.mac === selectedMac ? ' selected' : '');
+            btn.dataset.mac = device.mac;
+            btn.dataset.index = index;
+            btn.title = (device.name || device.mac) + ' (' + (device.rssi !== null ? device.rssi + ' dBm' : '') + ')';
+            btn.setAttribute('aria-label', 'Select ' + device.mac);
 
-        selectedEmpty.style.display = 'none';
-        selectedDetails.style.display = '';
-        document.getElementById('selectedMac').textContent = device.mac || '—';
-        document.getElementById('selectedType').textContent = device.type || 'Unknown';
-        document.getElementById('selectedVendor').textContent = device.vendor || 'Unknown';
-        document.getElementById('selectedRssi').textContent = device.rssi === null ? 'Not available' : device.rssi + ' dBm';
-        document.getElementById('selectedProximity').textContent = proximityFromRssi(device.rssi);
-        document.getElementById('selectedThreat').textContent = (device.threat || 0) + '/100';
-        document.getElementById('selectedSightings').textContent = device.sightings === null ? 'Not available' : device.sightings;
-        document.getElementById('selectedLastSeen').textContent = device.event_time || 'Not available';
+            const pos = markerPosition(index, device);
+            btn.style.left = pos.x.toFixed(2) + '%';
+            btn.style.top = pos.y.toFixed(2) + '%';
+
+            btn.innerHTML = '<span class="marker-core"></span><span class="marker-label mono">' + device.mac + '</span>';
+            btn.addEventListener('click', () => selectDeviceByMac(device.mac));
+            stage.appendChild(btn);
+        });
+    }
+
+    function renderDeviceTable() {
+        if (!deviceListContainer) return;
+        if (!radarDevices.length) {
+            deviceListContainer.innerHTML = '<div class="empty-state"><h4>No active BLE detections</h4><p>No non-whitelisted BLE events have been reported in the last 5 minutes.</p></div>';
+            return;
+        }
+
+        let html = '<div class="map-device-table">';
+        radarDevices.forEach((device) => {
+            const isSel = (device.mac === selectedMac);
+            const statusText = device.status === 'suspicious' ? 'Suspicious' : (device.status === 'whitelisted' ? 'Whitelisted' : 'Normal');
+            const statusClass = device.status === 'suspicious' ? 'badge-suspicious' : (device.status === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe');
+            const rssiStr = device.rssi !== null ? device.rssi + ' dBm' : '—';
+            const vendorStr = (device.vendor || 'Unknown vendor') + ' · ' + (device.type || 'Unknown type');
+
+            html += `<button type="button" class="map-device-row ${isSel ? 'selected' : ''}" data-mac="${device.mac}">
+                <span class="map-row-main">
+                    <span class="mono">${device.mac}</span>
+                    <small>${vendorStr}</small>
+                </span>
+                <span class="map-row-rssi">${rssiStr}</span>
+                <span class="badge ${statusClass}">${statusText}</span>
+            </button>`;
+        });
+        html += '</div>';
+        deviceListContainer.innerHTML = html;
+
+        deviceListContainer.querySelectorAll('.map-device-row').forEach(row => {
+            row.addEventListener('click', () => selectDeviceByMac(row.dataset.mac));
+        });
+    }
+
+    function updateSelectedSidebar() {
+        const device = radarDevices.find(d => d.mac === selectedMac) || radarDevices[0];
+        if (!device) {
+            if (selectedEmpty) selectedEmpty.style.display = '';
+            if (selectedDetails) selectedDetails.style.display = 'none';
+            return;
+        }
+
+        selectedMac = device.mac;
+        if (selectedEmpty) selectedEmpty.style.display = 'none';
+        if (selectedDetails) selectedDetails.style.display = '';
+
+        const macEl = document.getElementById('selectedMac');
+        if (macEl) macEl.textContent = device.mac || '—';
+
+        const typeEl = document.getElementById('selectedType');
+        if (typeEl) typeEl.textContent = device.type || device.name || 'Unknown';
+
+        const vendorEl = document.getElementById('selectedVendor');
+        if (vendorEl) vendorEl.textContent = device.vendor || 'Unknown';
+
+        const rssiEl = document.getElementById('selectedRssi');
+        if (rssiEl) rssiEl.textContent = (device.rssi !== null && device.rssi !== undefined) ? device.rssi + ' dBm' : 'Not available';
+
+        const proxEl = document.getElementById('selectedProximity');
+        if (proxEl) proxEl.textContent = proximityFromRssi(device.rssi);
+
+        const threatEl = document.getElementById('selectedThreat');
+        if (threatEl) threatEl.textContent = (device.threat || 0) + '/100';
+
+        const sightEl = document.getElementById('selectedSightings');
+        if (sightEl) sightEl.textContent = (device.sightings !== null && device.sightings !== undefined) ? device.sightings : 'Not available';
+
+        const seenEl = document.getElementById('selectedLastSeen');
+        if (seenEl) seenEl.textContent = device.event_time || 'Not available';
 
         const whitelistBtn = document.getElementById('selectedWhitelistBtn');
         if (whitelistBtn) {
             whitelistBtn.href = device.mac ? 'whitelist.php?add_mac=' + encodeURIComponent(device.mac) : 'whitelist.php';
         }
 
-        const suspicious = device.status === 'suspicious';
-        selectedBadge.textContent = suspicious ? 'Suspicious' : 'Normal';
-        selectedBadge.className = 'badge ' + (suspicious ? 'badge-suspicious' : 'badge-safe');
+        if (selectedBadge) {
+            const suspicious = (device.status === 'suspicious');
+            selectedBadge.textContent = suspicious ? 'Suspicious' : (device.status === 'whitelisted' ? 'Whitelisted' : 'Normal');
+            selectedBadge.className = 'badge ' + (suspicious ? 'badge-suspicious' : (device.status === 'whitelisted' ? 'badge-whitelisted' : 'badge-safe'));
+        }
 
-        markers.forEach(m => m.classList.remove('selected'));
-        rows.forEach(r => r.classList.remove('selected'));
-        if (markers[index]) markers[index].classList.add('selected');
-        if (rows[index]) rows[index].classList.add('selected');
+        stage.querySelectorAll('.radar-device-marker').forEach(m => {
+            m.classList.toggle('selected', m.dataset.mac === selectedMac);
+        });
+        if (deviceListContainer) {
+            deviceListContainer.querySelectorAll('.map-device-row').forEach(r => {
+                r.classList.toggle('selected', r.dataset.mac === selectedMac);
+            });
+        }
     }
 
-    markers.forEach((marker, index) => marker.addEventListener('click', () => selectDevice(index)));
-    rows.forEach((row, index) => row.addEventListener('click', () => selectDevice(index)));
+    function selectDeviceByMac(mac) {
+        selectedMac = mac;
+        updateSelectedSidebar();
+    }
 
-    let initialIndex = radarDevices.findIndex(device => initialSelectedMac && device.mac.toUpperCase() === initialSelectedMac.toUpperCase());
-    if (initialIndex < 0 && radarDevices.length) initialIndex = 0;
-    if (initialIndex >= 0) selectDevice(initialIndex);
+    async function pollRadarFeed() {
+        try {
+            const resp = await fetch('map.php?ajax=1', { cache: 'no-store' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (!data || !Array.isArray(data.devices)) return;
+
+            radarDevices = data.devices;
+
+            if (activeCountCaption && data.count !== undefined) {
+                activeCountCaption.textContent = `${data.count} active BLE target${data.count === 1 ? '' : 's'} in range (last 5m)`;
+            }
+
+            if (data.gps) {
+                const latEl = document.getElementById('gpsLat');
+                const lngEl = document.getElementById('gpsLng');
+                if (latEl && data.gps.lat !== null) latEl.textContent = Number(data.gps.lat).toFixed(5);
+                if (lngEl && data.gps.lng !== null) lngEl.textContent = Number(data.gps.lng).toFixed(5);
+            }
+
+            const existingMarkers = Array.from(stage.querySelectorAll('.radar-device-marker'));
+            const existingMacs = existingMarkers.map(m => m.dataset.mac);
+            const newMacs = radarDevices.map(d => d.mac);
+
+            const macSetChanged = (existingMacs.length !== newMacs.length) ||
+                !existingMacs.every((mac, idx) => mac === newMacs[idx]);
+
+            if (macSetChanged) {
+                renderRadarMarkers();
+                renderDeviceTable();
+            } else {
+                existingMarkers.forEach((marker, index) => {
+                    const dev = radarDevices[index];
+                    const pos = markerPosition(index, dev);
+                    marker.style.left = pos.x.toFixed(2) + '%';
+                    marker.style.top = pos.y.toFixed(2) + '%';
+                    marker.title = (dev.name || dev.mac) + ' (' + (dev.rssi !== null ? dev.rssi + ' dBm' : '') + ')';
+                });
+
+                if (deviceListContainer) {
+                    radarDevices.forEach(dev => {
+                        const row = deviceListContainer.querySelector(`.map-device-row[data-mac="${dev.mac}"]`);
+                        if (row) {
+                            const rssiEl = row.querySelector('.map-row-rssi');
+                            if (rssiEl) rssiEl.textContent = dev.rssi !== null ? dev.rssi + ' dBm' : '—';
+                        }
+                    });
+                }
+            }
+
+            updateSelectedSidebar();
+        } catch (e) {
+            console.warn('[Radar Poller] Live telemetry tick skipped:', e);
+        }
+    }
+
+    renderRadarMarkers();
+    renderDeviceTable();
+    updateSelectedSidebar();
+
+    setInterval(pollRadarFeed, 2500);
 })();
 </script>
 

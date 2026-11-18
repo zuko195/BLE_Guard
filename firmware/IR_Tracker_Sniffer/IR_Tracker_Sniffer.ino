@@ -76,6 +76,7 @@ struct TrackedTracker {
   int              distinctGPSPoints;
   int              threatScore;
   bool             flagged;
+  bool             pendingThreatReport;
 };
 
 // =============================================================================
@@ -916,6 +917,7 @@ int findOrCreateTrackerSlot(const String &mac, const TrackerIdentification &id, 
     t.maxDisplacementMeters = 0.0;
     t.threatScore = 0;
     t.flagged = false;
+    t.pendingThreatReport = false;
 
     if (gps.location.isValid()) {
       t.firstLat = gps.location.lat();
@@ -1029,10 +1031,8 @@ class TrackerScanCallbacks : public NimBLEScanCallbacks {
 
     if (!t.flagged && duration >= thresh && t.sightingCount >= minSight) {
       t.flagged = true;
+      t.pendingThreatReport = true; // Queue for safe transmission from main loop task
       printStalkerThreatAlert(t);
-
-      // Report high-priority threat event to Cloudflare tunnel / backend
-      sendEventToBackend(t, "suspicious");
 
       if (currentScreen != SCR_GEIGER_HUNTER) {
         targetTrackerIndex = slot;
@@ -1350,18 +1350,24 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
   String activeUrl = (activeBackendUrl.length() >= 8) ? activeBackendUrl : String(BACKEND_BASE_URL);
   if (activeUrl.length() < 8) return;
 
+  yield(); // Feed FreeRTOS watchdog
+
   HTTPClient http;
-  http.setConnectTimeout(800);
-  http.setTimeout(1200);
+  http.setConnectTimeout(1000);
+  http.setTimeout(1500);
 
   String url = activeUrl + "/api_log_event.php";
   bool beginOk = false;
   WiFiClient plainClient;
-  WiFiClientSecure secureClient;
+  WiFiClientSecure *secureClient = nullptr;
 
   if (url.startsWith("https://")) {
-    secureClient.setInsecure();
-    beginOk = http.begin(secureClient, url);
+    secureClient = new WiFiClientSecure();
+    if (secureClient) {
+      secureClient->setInsecure();
+      secureClient->setTimeout(2);
+      beginOk = http.begin(*secureClient, url);
+    }
   } else {
     beginOk = http.begin(plainClient, url);
   }
@@ -1372,6 +1378,8 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
       backendReachable = false;
       printTunnelWarning(activeUrl, -1);
     }
+    if (secureClient) delete secureClient;
+    yield();
     return;
   }
 
@@ -1426,6 +1434,8 @@ void sendEventToBackend(const TrackedTracker &t, const String &status) {
     }
   }
   http.end();
+  if (secureClient) delete secureClient;
+  yield();
 }
 
 void wipeConfigAndRestart() {
@@ -1515,6 +1525,8 @@ void runBootDiagnosticSequence() {
 
   // Step 2: Clean Wi-Fi Status Page
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_POWER_15dBm); // Restrain peak TX current to prevent brownout resets (rst:0x10)
+  WiFi.setSleep(false);              // Prevent latency jitter during BLE coexistence
   if (strlen(DEFAULT_WIFI_SSID) > 0) {
     Serial.printf("[WIFI] Connecting to backup SSID: %s\n", DEFAULT_WIFI_SSID);
     WiFi.begin(DEFAULT_WIFI_SSID, DEFAULT_WIFI_PASSWORD);
@@ -1715,13 +1727,24 @@ void loop() {
   processButtonEvents();
   processSerialCommands();
 
+  // 5b. Transmit queued stalker threat alerts (safely handled on main loop stack)
+  for (int i = 0; i < MAX_TRACKED_TRACKERS; i++) {
+    if (trackers[i].used && trackers[i].pendingThreatReport) {
+      trackers[i].pendingThreatReport = false;
+      sendEventToBackend(trackers[i], "suspicious");
+      break;
+    }
+  }
+
   // 6. Expire inactive trackers (>5 minutes without sighting)
   expireOldTrackers();
 
   // 6b. Stream one active tracker per scan cycle (staggered to prevent watchdog resets)
   static int nextStreamSlot = 0;
   static unsigned long lastBackendStreamTime = 0;
-  if (millis() - lastBackendStreamTime >= 2500) {
+  // If tunnel is down / offline, back off retries to 20s to prevent spamming failed SSL handshakes & crashing
+  unsigned long streamInterval = backendReachable ? 2500 : 20000;
+  if (millis() - lastBackendStreamTime >= streamInterval) {
     lastBackendStreamTime = millis();
     if (WiFi.status() == WL_CONNECTED && (activeApiKey.length() > 0 || strlen(DEFAULT_API_KEY) > 0)) {
       for (int step = 0; step < MAX_TRACKED_TRACKERS; step++) {
