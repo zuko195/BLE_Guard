@@ -9,7 +9,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $repoDir = dirname(__DIR__); // points to /var/www/ble_guard or repository root
-$output = shell_exec("git config --global --add safe.directory " . escapeshellarg($repoDir) . " 2>&1; cd " . escapeshellarg($repoDir) . " && git -c safe.directory=* pull origin main 2>&1");
+$output = shell_exec("export HOME=/tmp; cd " . escapeshellarg($repoDir) . " && git -c safe.directory=* pull origin main 2>&1");
 
 require 'includes/header.php';
 ?>
