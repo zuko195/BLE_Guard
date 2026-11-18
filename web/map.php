@@ -73,6 +73,13 @@ if ($gpsEvent) {
     }
 }
 
+// Calculate GPS freshness: live if within 10 min, cached/stale if older, or missing
+$gpsTime = $gpsEvent ? strtotime($gpsEvent['event_time']) : 0;
+$gpsAgeSec = $gpsTime > 0 ? (time() - $gpsTime) : 999999;
+$gpsIsLive = ($gpsLat !== null && $gpsLng !== null && $gpsAgeSec <= 600);
+$gpsStatusText = $gpsIsLive ? 'Live GPS Fix Active' : (($gpsLat !== null && $gpsLng !== null) ? 'Cached Last Known Location' : 'No GPS Fix Available');
+$gpsStatusClass = $gpsIsLive ? 'is-fixed' : (($gpsLat !== null && $gpsLng !== null) ? 'is-cached' : 'is-missing');
+
 $devicePayload = [];
 foreach ($tracked as $event) {
     $devicePayload[] = [
@@ -98,6 +105,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
         'timestamp' => date('Y-m-d H:i:s'),
         'gps' => [
             'has_fix' => ($gpsLat !== null && $gpsLng !== null),
+            'is_live' => $gpsIsLive,
+            'status_text' => $gpsStatusText,
+            'status_class' => $gpsStatusClass,
             'lat' => $gpsLat,
             'lng' => $gpsLng,
             'time' => $gpsEvent['event_time'] ?? null
@@ -143,10 +153,6 @@ require 'includes/header.php';
                 <div class="radar-ring ring-4"></div>
                 <div class="radar-cross cross-x"></div>
                 <div class="radar-cross cross-y"></div>
-                
-                <span class="radar-distance-label dist-1">&lt;1m</span>
-                <span class="radar-distance-label dist-2">1-3m</span>
-                <span class="radar-distance-label dist-3">3-8m</span>
 
                 <div class="radar-sweep"></div>
 
@@ -199,18 +205,15 @@ require 'includes/header.php';
                 <h3>GPS Status</h3>
                 <span class="card-caption">ESP32 reference</span>
             </div>
-            <div class="gps-status-row <?= $gpsLat !== null ? 'is-fixed' : 'is-missing' ?>">
+            <div class="gps-status-row <?= $gpsStatusClass ?>" id="gpsStatusRow">
                 <span class="status-dot"></span>
-                <strong><?= $gpsLat !== null ? 'GPS fix available' : 'GPS fix not available' ?></strong>
+                <strong id="gpsStatusText"><?= $gpsStatusText ?></strong>
             </div>
             <div class="gps-coordinates">
                 <div><span>Latitude</span><strong id="gpsLat"><?= $gpsLat !== null ? number_format($gpsLat, 5, '.', '') : 'Not available' ?></strong></div>
                 <div><span>Longitude</span><strong id="gpsLng"><?= $gpsLng !== null ? number_format($gpsLng, 5, '.', '') : 'Not available' ?></strong></div>
-                <div><span>Last GPS update</span><strong><?= htmlspecialchars($gpsEvent['event_time'] ?? 'Not available') ?></strong></div>
-                <div><span>Satellite count</span><strong>Not available</strong></div>
-                <div><span>Accuracy</span><strong>Not available</strong></div>
+                <div><span>Last GPS Fix</span><strong id="gpsLastSeen"><?= htmlspecialchars($gpsEvent['event_time'] ?? 'Not available') ?></strong></div>
             </div>
-            <p class="form-note">The current backend stores the existing GPS location as a location identifier. Satellite count and GPS accuracy are not currently transmitted, so they are not fabricated here.</p>
         </section>
     </aside>
 </div>
@@ -263,10 +266,10 @@ let selectedMac = <?= json_encode($selectedMac ?: ($devicePayload[0]['mac'] ?? '
     function proximityFromRssi(rssi) {
         const value = Number(rssi);
         if (!Number.isFinite(value)) return 'Not available';
-        if (value >= -50) return 'Immediate (<1m)';
-        if (value >= -68) return 'Nearby (1-3m)';
-        if (value >= -82) return 'Mid-Range (3-8m)';
-        return 'Distant (>8m)';
+        if (value >= -50) return 'Immediate';
+        if (value >= -68) return 'Nearby';
+        if (value >= -82) return 'Mid-Range';
+        return 'Distant';
     }
 
     // Precise concentric ring radius based on RF path-loss & radar rings
@@ -448,8 +451,14 @@ let selectedMac = <?= json_encode($selectedMac ?: ($devicePayload[0]['mac'] ?? '
             if (data.gps) {
                 const latEl = document.getElementById('gpsLat');
                 const lngEl = document.getElementById('gpsLng');
+                const statusRow = document.getElementById('gpsStatusRow');
+                const statusText = document.getElementById('gpsStatusText');
+                const lastSeen = document.getElementById('gpsLastSeen');
                 if (latEl && data.gps.lat !== null) latEl.textContent = Number(data.gps.lat).toFixed(5);
                 if (lngEl && data.gps.lng !== null) lngEl.textContent = Number(data.gps.lng).toFixed(5);
+                if (lastSeen && data.gps.time) lastSeen.textContent = data.gps.time;
+                if (statusRow && data.gps.status_class) statusRow.className = 'gps-status-row ' + data.gps.status_class;
+                if (statusText && data.gps.status_text) statusText.textContent = data.gps.status_text;
             }
 
             const existingMarkers = Array.from(stage.querySelectorAll('.radar-device-marker'));

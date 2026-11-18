@@ -113,12 +113,5 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                 <span>Sign Out</span>
             </a>
         </nav>
-
-        <div class="sidenav-footer">
-            <div class="node-pill">
-                <span class="node-dot"></span>
-                <span class="node-text">COM9 ESP32 SNIFFER</span>
-            </div>
-        </div>
     </aside>
     <main class="main-content">

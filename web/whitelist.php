@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $primaryDeviceId) {
 $whitelisted = [];
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
-    $stmt = $pdo->prepare("SELECT w.*, e.vendor, e.device_type, e.rssi, e.sighting_count, e.event_time AS last_seen FROM whitelist w LEFT JOIN ble_events e ON e.device_id = w.device_id AND e.mac_address = w.mac_address AND e.event_time = (SELECT MAX(e2.event_time) FROM ble_events e2 WHERE e2.device_id = w.device_id AND e2.mac_address = w.mac_address) WHERE w.device_id IN ($placeholders) ORDER BY w.added_at DESC");
+    $stmt = $pdo->prepare("SELECT w.*, e.vendor, e.tracker_ecosystem AS ecosystem, e.device_name, e.device_type, e.rssi, e.sighting_count, e.event_time AS last_seen FROM whitelist w LEFT JOIN ble_events e ON e.device_id = w.device_id AND e.mac_address = w.mac_address AND e.event_time = (SELECT MAX(e2.event_time) FROM ble_events e2 WHERE e2.device_id = w.device_id AND e2.mac_address = w.mac_address) WHERE w.device_id IN ($placeholders) ORDER BY w.added_at DESC");
     $stmt->execute($deviceIds);
     $whitelisted = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -166,7 +166,12 @@ require 'includes/header.php';
                                 <span class="mono" style="color: var(--color-accent); font-weight:600;"><?= htmlspecialchars($w['mac_address']) ?></span>
                             </td>
                             <td>
-                                <span class="badge badge-safe"><?= htmlspecialchars($w['vendor'] ?: 'Known BLE') ?></span>
+                                <div style="display:flex; flex-direction:column; gap:3px;">
+                                    <span class="badge badge-safe"><?= htmlspecialchars(!empty($w['ecosystem']) && $w['ecosystem'] !== 'Other' ? $w['ecosystem'] : ($w['vendor'] ?: 'Trusted BLE')) ?></span>
+                                    <?php if (!empty($w['device_name'])): ?>
+                                        <span style="font-size:11px; color:var(--color-muted);"><?= htmlspecialchars($w['device_name']) ?></span>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                             <td>
                                 <span class="mono"><?= $w['rssi'] !== null ? htmlspecialchars($w['rssi']) . ' dBm' : '—' ?></span>

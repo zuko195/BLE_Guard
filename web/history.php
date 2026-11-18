@@ -17,12 +17,17 @@ $suspiciousByDay = [];
 if ($deviceIds) {
     $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
 
-    // Devices seen within window, with total sightings
+    // Devices seen within window, with total sightings, last seen, and device name
     $stmt = $pdo->prepare("
-        SELECT mac_address, MAX(vendor) AS vendor, SUM(sighting_count) AS total_sightings
+        SELECT mac_address, 
+               COALESCE(MAX(device_name), 'Covert Tag') AS device_name,
+               COALESCE(MAX(tracker_ecosystem), MAX(vendor), 'BLE Device') AS vendor, 
+               SUM(sighting_count) AS total_sightings,
+               MAX(event_time) AS last_seen,
+               MAX(threat_score) AS max_threat
         FROM ble_events
         WHERE device_id IN ($placeholders) AND event_time >= DATE_SUB(NOW(), INTERVAL ? DAY)
-        GROUP BY mac_address ORDER BY total_sightings DESC
+        GROUP BY mac_address ORDER BY last_seen DESC
     ");
     $stmt->execute(array_merge($deviceIds, [$window]));
     $deviceList = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -89,18 +94,50 @@ require 'includes/header.php';
                     <tr>
                         <th>#</th>
                         <th>Hardware MAC</th>
-                        <th>Ecosystem / Vendor</th>
+                        <th>Device & Ecosystem</th>
                         <th>Cumulative Sightings</th>
+                        <th>Last Observed</th>
+                        <th>Activity State</th>
                         <th style="text-align: right;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($deviceList as $i => $d): ?>
+                    <?php foreach ($deviceList as $i => $d): 
+                        $lastSeenTime = !empty($d['last_seen']) ? strtotime($d['last_seen']) : 0;
+                        $ageSec = $lastSeenTime > 0 ? (time() - $lastSeenTime) : 999999;
+                        $isActive = ($ageSec <= 300);
+
+                        if ($ageSec < 60) {
+                            $timeAgo = 'Just now';
+                        } elseif ($ageSec < 3600) {
+                            $timeAgo = floor($ageSec / 60) . 'm ago';
+                        } elseif ($ageSec < 86400) {
+                            $timeAgo = floor($ageSec / 3600) . 'h ago';
+                        } else {
+                            $timeAgo = floor($ageSec / 86400) . 'd ago';
+                        }
+                    ?>
                         <tr>
                             <td><span class="mono" style="color:var(--color-muted);"><?= $i + 1 ?></span></td>
                             <td><span class="mono" style="color:var(--color-accent); font-weight:600;"><?= htmlspecialchars($d['mac_address']) ?></span></td>
-                            <td><span class="badge badge-neutral"><?= htmlspecialchars($d['vendor'] ?? 'Unknown BLE') ?></span></td>
+                            <td>
+                                <div style="display:flex; flex-direction:column; gap:2px;">
+                                    <span style="color:#ffffff; font-weight:600; font-size:13px;"><?= htmlspecialchars($d['device_name']) ?></span>
+                                    <span style="color:var(--color-muted); font-size:11px;"><?= htmlspecialchars($d['vendor']) ?></span>
+                                </div>
+                            </td>
                             <td><span class="mono" style="color:#ffffff; font-weight:700;"><?= htmlspecialchars($d['total_sightings']) ?> pings</span></td>
+                            <td>
+                                <div style="display:flex; flex-direction:column; gap:2px;">
+                                    <span class="mono" style="font-size:12px; color:#e2e8f0;"><?= htmlspecialchars($d['last_seen']) ?></span>
+                                    <span style="color:var(--color-muted); font-size:11px;"><?= $timeAgo ?></span>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge <?= $isActive ? 'badge-tracking' : 'badge-neutral' ?>">
+                                    <?= $isActive ? 'Active in Range' : 'Past Encounter' ?>
+                                </span>
+                            </td>
                             <td style="text-align: right;">
                                 <a href="map.php?mac=<?= urlencode($d['mac_address']) ?>" class="btn btn-sm" style="background:rgba(56,189,248,0.1); border-color:rgba(56,189,248,0.3); color:var(--color-accent);">
                                     Radar Focus

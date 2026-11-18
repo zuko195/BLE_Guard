@@ -34,6 +34,7 @@ if ($deviceIds) {
     ");
     $stmt->execute(array_merge($deviceIds, $deviceIds));
     $currentlyTracked = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $activeMacList = array_map('strtoupper', array_column($currentlyTracked, 'mac_address'));
 
     $stmt = $pdo->prepare("SELECT * FROM ble_events WHERE device_id IN ($placeholders) ORDER BY event_time DESC LIMIT 50");
     $stmt->execute($deviceIds);
@@ -135,7 +136,7 @@ require 'includes/header.php';
         $stName = htmlspecialchars($stalker['device_name'] ?? 'Covert Tracker');
         $stRssi = (int)($stalker['rssi'] ?? -99);
         // Estimate proximity zone
-        $proxZone = $stRssi >= -50 ? 'Immediate (<1m)' : ($stRssi >= -65 ? 'Near (1-3m)' : ($stRssi >= -80 ? 'Mid-Range (3-8m)' : 'Distant (>8m)'));
+        $proxZone = $stRssi >= -50 ? 'Immediate' : ($stRssi >= -65 ? 'Nearby' : ($stRssi >= -80 ? 'Mid-Range' : 'Distant'));
         $proxPercent = max(5, min(100, 100 - (abs($stRssi) - 30) * 1.4));
     ?>
     <div class="card card-threat">
@@ -384,27 +385,86 @@ if ($insights):
     <input type="text" id="searchBox" placeholder="Filter by MAC, name, ecosystem, or status..." onkeyup="filterTable()">
     <div class="table-shell">
         <table id="eventsTable">
-            <tr><th>Time</th><th>Identifier (MAC)</th><th>Device Name</th><th>Ecosystem</th><th>RSSI</th><th>Sightings</th><th>Threat Status</th></tr>
+            <tr>
+                <th>Time</th>
+                <th>Identifier (MAC)</th>
+                <th>Device Name</th>
+                <th>Ecosystem</th>
+                <th>RSSI</th>
+                <th>Sightings</th>
+                <th>Activity</th>
+                <th>Threat Status</th>
+                <th style="text-align: right;">Action</th>
+            </tr>
             <?php foreach ($events as $e): ?>
                 <?php
-                $eventStatusText = $e['status'] === 'suspicious' ? 'Suspicious' : ($e['status'] === 'whitelisted' ? 'Whitelisted' : ($e['status'] === 'out_of_range' ? 'Out of Range' : 'Tracking'));
-                $eventStatusClass = $e['status'] === 'suspicious' ? 'badge-suspicious' : ($e['status'] === 'whitelisted' ? 'badge-whitelisted' : ($e['status'] === 'out_of_range' ? 'badge-inactive' : 'badge-safe'));
+                $eventTimestamp = !empty($e['event_time']) ? strtotime($e['event_time']) : 0;
+                $eventAgeSec = $eventTimestamp > 0 ? (time() - $eventTimestamp) : 999999;
+                $isLive = in_array(strtoupper($e['mac_address']), $activeMacList, true) && ($eventAgeSec <= 300);
+
+                if ($eventAgeSec < 60) {
+                    $timeDisplay = 'Just now';
+                } elseif ($eventAgeSec < 3600) {
+                    $timeDisplay = floor($eventAgeSec / 60) . 'm ago';
+                } elseif ($eventAgeSec < 86400) {
+                    $timeDisplay = floor($eventAgeSec / 3600) . 'h ago';
+                } else {
+                    $timeDisplay = floor($eventAgeSec / 86400) . 'd ago';
+                }
+
+                if ($e['status'] === 'whitelisted') {
+                    $activityText = 'Whitelisted';
+                    $activityClass = 'badge-whitelisted';
+                } elseif ($isLive) {
+                    $activityText = 'Active Target';
+                    $activityClass = 'badge-tracking';
+                } else {
+                    $activityText = 'Past Sighting';
+                    $activityClass = 'badge-neutral';
+                }
+
                 $eventThreatValue = (int)($e['threat_score'] ?? 0);
-                $eventThreatClass = $eventThreatValue >= 70 ? 'threat-high' : ($eventThreatValue >= 40 ? 'threat-medium' : 'threat-low');
+                if ($e['status'] === 'whitelisted') {
+                    $threatText = 'Trusted';
+                    $threatClass = 'threat-low';
+                } elseif ($eventThreatValue >= 70 || $e['status'] === 'suspicious') {
+                    $threatText = 'Suspicious';
+                    $threatClass = 'threat-high';
+                } elseif ($eventThreatValue >= 40) {
+                    $threatText = 'Elevated';
+                    $threatClass = 'threat-medium';
+                } else {
+                    $threatText = 'Normal';
+                    $threatClass = 'threat-low';
+                }
+
                 $ecoName = !empty($e['tracker_ecosystem']) && $e['tracker_ecosystem'] !== 'Other' ? $e['tracker_ecosystem'] : ($e['vendor'] ?? 'Tracker');
                 ?>
             <tr>
-                <td><?= htmlspecialchars($e['event_time']) ?></td>
+                <td>
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <span class="mono" style="color:#ffffff; font-size:12px;"><?= htmlspecialchars($e['event_time']) ?></span>
+                        <span style="color:var(--color-muted); font-size:11px;"><?= $timeDisplay ?></span>
+                    </div>
+                </td>
                 <td class="mono"><?= htmlspecialchars($e['mac_address']) ?></td>
                 <td><?= htmlspecialchars($e['device_name'] ?? 'Covert Tag') ?></td>
                 <td><?= htmlspecialchars($ecoName) ?></td>
                 <td><?= htmlspecialchars($e['rssi']) ?> dBm</td>
                 <td><?= htmlspecialchars($e['sighting_count']) ?></td>
                 <td>
-                    <div class="event-meta">
-                        <span class="badge <?= $eventStatusClass ?>"><?= htmlspecialchars($eventStatusText) ?></span>
-                        <span class="threat-pill <?= $eventThreatClass ?>"><?= $eventThreatValue ?>/100</span>
+                    <span class="badge <?= $activityClass ?>"><?= $activityText ?></span>
+                </td>
+                <td>
+                    <div class="event-meta" style="display:flex; align-items:center; gap:6px;">
+                        <span class="threat-pill <?= $threatClass ?>"><?= $threatText ?></span>
+                        <span class="threat-pill <?= $threatClass ?>"><?= $eventThreatValue ?>/100</span>
                     </div>
+                </td>
+                <td style="text-align: right;">
+                    <a class="device-action-link" href="map.php?mac=<?= urlencode($e['mac_address']) ?>" title="Focus on Tactical Radar" style="padding:4px 8px; font-size:11px;">
+                        Radar
+                    </a>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -422,10 +482,10 @@ if ($insights):
     function proximityFromRssi(rssi) {
         const value = Number(rssi);
         if (!Number.isFinite(value)) return 'Not available';
-        if (value >= -55) return 'Very near';
-        if (value >= -70) return 'Nearby';
-        if (value >= -85) return 'Moderate';
-        return 'Far';
+        if (value >= -50) return 'Immediate';
+        if (value >= -68) return 'Nearby';
+        if (value >= -82) return 'Mid-Range';
+        return 'Distant';
     }
 
     function openModal(raw) {
